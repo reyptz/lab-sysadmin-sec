@@ -1,0 +1,38 @@
+---
+- name: Installation Docker sur Ubuntu
+  hosts: ubuntu_servers
+  become: yes
+  tasks:
+    - name: Prérequis
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+
+    - name: Clé GPG Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Repo Docker
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+
+    - name: Installation Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: latest
+        update_cache: yes
+
+    - name: Démarrage Docker
+      service:
+        name: docker
+        state: started
+        enabled: yes

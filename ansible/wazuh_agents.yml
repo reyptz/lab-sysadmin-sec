@@ -1,0 +1,36 @@
+---
+- name: Déploiement agents Wazuh
+  hosts: all
+  become: yes
+  vars:
+    wazuh_manager: "192.168.100.128"
+    wazuh_version: "4.7.0"   # À adapter
+
+  tasks:
+    - name: Ajout repo Wazuh (Linux)
+      apt_repository:
+        repo: deb https://packages.wazuh.com/4.x/apt/ stable main
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Installation agent Wazuh (Linux)
+      apt:
+        name: wazuh-agent={{ wazuh_version }}
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Enregistrement agent (Linux)
+      command: /var/ossec/bin/agent-auth -m {{ wazuh_manager }}
+      when: ansible_os_family == "Debian"
+
+    - name: Installation agent Windows (via WinRM)
+      win_package:
+        path: https://packages.wazuh.com/4.x/windows/wazuh-agent-{{ wazuh_version }}-1.msi
+        state: present
+      when: ansible_os_family == "Windows"
+
+    - name: Démarrage service
+      service:
+        name: wazuh
+        state: started
+        enabled: yes

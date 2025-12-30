@@ -1,0 +1,33 @@
+---
+- name: Fail2Ban avec action blocage OPNsense
+  hosts: linux_servers
+  become: yes
+  tasks:
+    - name: Installation Fail2Ban
+      apt:
+        name: fail2ban
+        state: present
+
+    - name: Copie action OPNsense
+      template:
+        src: opnsense-ban.py.j2
+        dest: /etc/fail2ban/action.d/opnsense-ban.py
+        mode: '0755'
+
+    - name: Configuration jail SSH avec action OPNsense
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [sshd]
+          enabled = true
+          action = opnsense-ban[name=ssh]
+                   iptables-allports
+          maxretry = 5
+          bantime = 3600
+      notify: restart fail2ban
+
+  handlers:
+    - name: restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted

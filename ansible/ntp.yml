@@ -1,0 +1,33 @@
+---
+- name: Configuration NTP (serveur sur Debian, clients ailleurs)
+  hosts: all
+  become: yes
+  vars:
+    ntp_server_ip: "192.168.19.130"  # IP du Debian NTP
+
+  tasks:
+    - name: Installation chrony (recommandé > ntp)
+      apt:
+        name: chrony
+        state: present
+
+    - name: Configuration serveur NTP (Debian uniquement)
+      template:
+        src: chrony_server.conf.j2
+        dest: /etc/chrony/chrony.conf
+      when: inventory_hostname in groups['debian_ntp']
+      notify: restart chrony
+
+    - name: Configuration client NTP
+      template:
+        src: chrony_client.conf.j2
+        dest: /etc/chrony/chrony.conf
+      when: inventory_hostname not in groups['debian_ntp']
+      notify: restart chrony
+
+  handlers:
+    - name: restart chrony
+      service:
+        name: chrony
+        state: restarted
+        enabled: yes

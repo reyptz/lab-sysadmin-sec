@@ -1,0 +1,22 @@
+---
+- name: SELinux Enforcing + Trivy scan
+  hosts: all_linux
+  collections:
+    - ansible.posix
+    - cyva.accs
+  
+  tasks:
+    - name: SELinux enforcing
+      selinux:
+        policy: targeted
+        state: enforcing
+    
+    - name: Trivy full scan (OS + Docker images)
+      trivy:
+        target: image
+        image: nginx:alpine
+        vuln_type: os,library
+        format: sarif
+        output: /var/log/trivy-scan.sarif
+        exit-code: 1  # Fail sur critical
+        severity: CRITICAL,HIGH

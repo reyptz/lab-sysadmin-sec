@@ -1,0 +1,22 @@
+---
+- name: ELK + Filebeat (logs centralisés)
+  hosts: log_server
+  become: yes
+  
+  tasks:
+    - name: Docker Compose ELK
+      template:
+        src: docker-compose-elk.yml.j2
+        dest: /opt/elk/docker-compose.yml
+      notify: up elk
+    
+    - name: Filebeat config (forward to Elasticsearch)
+      template:
+        src: filebeat.yml.j2
+        dest: /etc/filebeat/filebeat.yml
+
+  handlers:
+    - name: up elk
+      docker_compose:
+        project_src: /opt/elk
+        state: present

@@ -1,0 +1,43 @@
+{
+  "variables": {
+    "ansible_repo": "https://github.com/tonlab/lab-sysadmin-sec"
+  },
+  "builders": [{
+    "type": "amazon-ebs",
+    "region": "eu-west-1",
+    "source_ami_filter": {
+      "filters": {
+        "name": "debian-13-amd64-*",
+        "virtualization-type": "hvm"
+      },
+      "owners": ["679593333241"],
+      "most_recent": true
+    },
+    "instance_type": "t3.micro",
+    "ssh_username": "admin",
+    "ami_name": "debian13-cis-hardened-{{timestamp}}"
+  }],
+  "provisioners": [
+    {
+      "type": "ansible",
+      "playbook_file": "../ansible/cis_benchmark.yml",
+      "extra_arguments": ["-e", "cis_level=1", "-e", "ansible_repo={{user `ansible_repo`}}"]
+    },
+    {
+      "type": "shell",
+      "inline": [
+        "apt install -y selinux-basics selinux-policy-default",
+        "setenforce 1",
+        "echo 'SELINUX=enforcing' > /etc/selinux/config"
+      ]
+    },
+    {
+      "type": "ansible",
+      "playbook_file": "../ansible/selinux.yml"
+    }
+  ],
+  "post-processors": [{
+    "type": "manifest",
+    "output": "manifest.json"
+  }]
+}

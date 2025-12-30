@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pfsense>
+  <version>24.03</version>
+  <system>
+    <hostname>pfSense-lab</hostname>
+    <domain>monlab.local</domain>
+    <timezone>Europe/Paris</timezone>
+    <dnsallowoverride/>
+    <dnsserver>192.168.19.133</dnsserver> <!-- Windows DNS primaire -->
+    <dnsserver>192.168.19.130</dnsserver> <!-- Bind9 secondaire -->
+  </system>
+
+  <interfaces>
+    <wan>
+      <if>vtnet0</if>
+      <descr>WAN</descr>
+      <enable>true</enable>
+      <ipaddr>dhcp</ipaddr>
+      <spoofmac/>
+    </wan>
+    <lan>
+      <if>vtnet1</if>
+      <descr>LAN</descr>
+      <enable>true</enable>
+      <ipaddr>192.168.19.1</ipaddr>
+      <subnet>24</subnet>
+    </lan>
+    <opt1>
+      <descr>VLAN10_Users</descr>
+      <if>vtnet1.10</if>
+      <enable>true</enable>
+      <ipaddr>192.168.23.1</ipaddr>
+      <subnet>24</subnet>
+    </opt1>
+    <opt2>
+      <descr>VLAN20_Servers</descr>
+      <if>vtnet1.20</if>
+      <enable>true</enable>
+      <ipaddr>192.168.19.1</ipaddr>
+      <subnet>24</subnet>
+    </opt2>
+    <opt3>
+      <descr>VLAN99_SOC</descr>
+      <if>vtnet1.99</if>
+      <enable>true</enable>
+      <ipaddr>192.168.100.1</ipaddr>
+      <subnet>24</subnet>
+    </opt3>
+  </interfaces>
+
+  <vlans>
+    <vlan>
+      <vlanif>vtnet1.10</vlanif>
+      <tag>10</tag>
+      <if>vtnet1</if>
+      <descr>Users</descr>
+    </vlan>
+    <vlan>
+      <vlanif>vtnet1.20</vlanif>
+      <tag>20</tag>
+      <if>vtnet1</if>
+      <descr>Servers</descr>
+    </vlan>
+    <vlan>
+      <vlanif>vtnet1.99</vlanif>
+      <tag>99</tag>
+      <if>vtnet1</if>
+      <descr>SOC/Security</descr>
+    </vlan>
+  </vlans>
+
+  <dhcpd>
+    <vlan10>
+      <enable>true</enable>
+      <range>
+        <from>192.168.23.100</from>
+        <to>192.168.23.254</to>
+      </range>
+      <dns1>192.168.19.133</dns1>
+    </vlan10>
+    <vlan20>
+      <enable>true</enable>
+      <range>
+        <from>192.168.19.100</from>
+        <to>192.168.19.254</to>
+      </range>
+    </vlan20>
+    <vlan99>
+      <enable>true</enable>
+      <range>
+        <from>192.168.100.100</from>
+        <to>192.168.100.254</to>
+      </range>
+    </vlan99>
+  </dhcpd>
+
+  <nat>
+    <outbound>
+      <mode>automatic</mode>
+    </outbound>
+  </nat>
+
+  <filter>
+    <!-- Règle VLAN20 : Serveurs autorisés à tout sortir -->
+    <rule>
+      <id/>
+      <tracker>1700000001</tracker>
+      <type>pass</type>
+      <interface>opt2</interface>
+      <ipprotocol>inet</ipprotocol>
+      <source>
+        <network>opt2net</network>
+      </source>
+      <destination>
+        <any/>
+      </destination>
+      <descr>Serveurs → Internet complet (mises à jour, etc.)</descr>
+      <associated-rule-id>nat_1700000001</associated-rule-id>
+    </rule>
+
+    <!-- Blocage inter-VLAN par défaut -->
+    <rule>
+      <id/>
+      <tracker>1700000002</tracker>
+      <type>block</type>
+      <interface>opt1,opt2,opt3</interface>
+      <source>
+        <any/>
+      </source>
+      <destination>
+        <any/>
+      </destination>
+      <descr>Blocage inter-VLAN par défaut (sauf règles explicites)</descr>
+    </rule>
+
+    <!-- Autoriser accès dashboards SOC depuis VLAN20 -->
+    <rule>
+      <id/>
+      <tracker>1700000003</tracker>
+      <type>pass</type>
+      <interface>opt2</interface>
+      <source>
+        <network>opt2net</network>
+      </source>
+      <destination>
+        <network>opt3net</network>
+        <port>3000,9090,5601,8080</port>
+      </destination>
+      <protocol>tcp</protocol>
+      <descr>Serveurs → Dashboards SOC (Grafana, Prometheus, Kibana, Wazuh)</descr>
+    </rule>
+  </filter>
+
+  <wireguard>
+    <!-- Exemple WireGuard déjà vu dans le précédent message -->
+  </wireguard>
+
+  <installedpackages>
+    <!-- Suricata, pfBlockerNG, etc. -->
+    <package>
+      <name>suricata</name>
+      <descr>IDS/IPS</descr>
+      <configurationfile>suricata.xml</configurationfile>
+    </package>
+  </installedpackages>
+</pfsense>

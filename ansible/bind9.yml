@@ -1,0 +1,51 @@
+---
+- name: Configuration Bind9 DNS secondaire
+  hosts: debian_dns
+  become: yes
+  vars:
+    primary_dns_ip: "192.168.19.130"  # IP debian_dns
+    domain_name: "monlab.local"
+    zone_file: "/etc/bind/db.{{ domain_name }}"
+    allowed_networks:
+      - "192.168.100.0/24"
+      - "192.168.19.0/24"
+      - "192.168.23.0/24"
+
+  tasks:
+    - name: Installation Bind9
+      apt:
+        name: bind9
+        state: present
+
+    - name: Configuration named.conf.options
+      template:
+        src: named.conf.options.j2
+        dest: /etc/bind/named.conf.options
+      notify: restart bind9
+
+    - name: Déclaration zone forward
+      template:
+        src: named.conf.local.j2
+        dest: /etc/bind/named.conf.local
+      notify: restart bind9
+
+    - name: Création zone file (stub ou copie depuis primary)
+      copy:
+        content: |
+          $TTL 86400
+          @ IN SOA ns1.{{ domain_name }}. admin.{{ domain_name }}. (
+                        2025122701 ; Serial
+                        3600       ; Refresh
+                        1800       ; Retry
+                        604800     ; Expire
+                        86400 )    ; Minimum TTL
+          @       IN NS   ns1.{{ domain_name }}.
+          ns1     IN A    {{ ansible_default_ipv4.address }}
+        dest: "{{ zone_file }}"
+      notify: restart bind9
+
+  handlers:
+    - name: restart bind9
+      service:
+        name: named
+        state: restarted

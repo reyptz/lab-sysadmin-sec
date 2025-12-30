@@ -1,0 +1,40 @@
+---
+- name: Prometheus + Grafana + Node Exporter
+  hosts: monitoring_servers
+  become: yes
+  vars:
+    prometheus_version: "2.53.0"
+  
+  tasks:
+    - name: Node Exporter
+      unarchive:
+        src: "https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz"
+        dest: /opt
+        remote_src: yes
+    
+    - name: Prometheus
+      unarchive:
+        src: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: /opt
+        remote_src: yes
+    
+    - name: Grafana
+      apt:
+        deb: "https://apt.grafana.com/pool/main/g/grafana/grafana_{{ grafana_version }}_amd64.deb"
+    
+    - name: Config Prometheus (scrape Wazuh, Linux servers)
+      template:
+        src: prometheus.yml.j2
+        dest: /opt/prometheus/prometheus.yml
+      notify: restart prometheus
+    
+    - name: Grafana dashboards (Wazuh + infra)
+      copy:
+        src: dashboards/
+        dest: /var/lib/grafana/dashboards/
+
+  handlers:
+    - name: restart prometheus
+      systemd:
+        name: prometheus
+        state: restarted

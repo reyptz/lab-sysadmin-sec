@@ -1,0 +1,30 @@
+---
+- name: Hardening Bastion SSH
+  hosts: debian-server
+  become: yes
+  tasks:
+    - name: SSH config sécurisée
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+        - { regexp: '^X11Forwarding', line: 'X11Forwarding no' }
+        - { regexp: '^MaxAuthTries', line: 'MaxAuthTries 3' }
+        - { regexp: '^ClientAliveInterval', line: 'ClientAliveInterval 300' }
+        - { regexp: '^ClientAliveCountMax', line: 'ClientAliveCountMax 0' }
+      notify: restart ssh
+
+    - name: Clés SSH uniquement + Fail2Ban SSH
+      apt:
+        name: fail2ban
+        state: present
+
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted

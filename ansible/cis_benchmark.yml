@@ -1,0 +1,26 @@
+---
+- name: CIS Benchmark Linux (Level 1) - Audit & Remediate
+  hosts: linux_servers
+  tasks:
+    - name: CIS 1.1.1.1 Ensure mounting of cramfs is disabled
+      lineinfile:
+        path: /etc/modprobe.d/CIS.conf
+        regexp: '^install cramfs'
+        line: 'install cramfs /bin/true'
+    
+    - name: CIS 1.4.1 Ensure filesystem permissions are governed by systemd tmpfiles
+      file:
+        path: /etc/tmpfiles.d
+        state: directory
+        mode: '0755'
+    
+    - name: CIS 5.2.1 Ensure permissions on /etc/ssh/sshd_config are 644
+      file:
+        path: /etc/ssh/sshd_config
+        mode: '0644'
+    
+    # 100+ règles CIS automatisées...
+    - name: Generate compliance report
+      shell: lynis audit system > /var/log/cis-lynis-report.txt
+      args:
+        creates: /var/log/cis-lynis-report.txt

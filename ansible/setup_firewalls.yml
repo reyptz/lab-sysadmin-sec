@@ -1,0 +1,75 @@
+---
+- name: Configuration OPNsense (Firewall Principal)
+  hosts: opnsense
+  gather_facts: no
+  connection: ssh
+  become: yes
+  vars:
+    start_packages:
+      - iperf3
+      - os-modsecurity
+      - os-frr
+      - os-wireguard
+    vlan_config:
+      - { vlan: 10, desc: "Users" }
+      - { vlan: 20, desc: "Servers" }
+      - { vlan: 99, desc: "Security" }
+
+  tasks:
+    - name: "Installation des paquets requis (Iperf, WAF, Routing, WireGuard)"
+      raw: pkg install -y {{ item }}
+      loop: "{{ start_packages }}"
+      register: pkg_result
+      changed_when: "'reinstalling' not in pkg_result.stdout"
+
+    - name: "Vérification configuration TLS/SSL"
+      debug:
+        msg: "Assurez-vous que les certificats TLS/SSL sont configurés via l'interface web ou l'API."
+
+    - name: "Note sur le routage BGP/OSPF"
+      debug:
+        msg: "Configurez FRR (BGP/OSPF) via Services -> FRR après l'installation du plugin."
+
+- name: Configuration pfSense (Firewall Secondaire)
+  hosts: pfsense
+  gather_facts: no
+  connection: ssh
+  become: yes
+  vars:
+    pfsense_packages:
+      - wireguard
+      - nmap
+      - iperf3
+      # Note: Sur pfSense, l'installation de paquets via CLI est possible mais l'interface PHP est recommandée.
+
+  tasks:
+    - name: "Installation des paquets (Design VPC, VPN, Monitoring)"
+      shell: pkg install -y {{ item }}
+      loop: "{{ pfsense_packages }}"
+      ignore_errors: yes
+
+    - name: "Activation SSH (si non actif)"
+      shell: "pfSsh.php playback enable"
+      changed_when: false
+
+    - name: "Configuration IPSec et WireGuard"
+      debug:
+        msg: "Configurer les tunnels IPSec et WireGuard dans VPN -> IPSec / WireGuard."
+
+    - name: "Monitoring & Sniffing"
+      debug:
+        msg: "Outils de monitoring installés. Configurer la capture de paquets si nécessaire via Diagnostics -> Packet Capture."
+
+- name: Configuration des VLANs (Global)
+  hosts: localhost
+  connection: local
+  vars:
+    vlans:
+      - { id: 10, name: "Users", subnet: "192.168.23.0/24" }
+      - { id: 20, name: "Servers", subnet: "192.168.19.0/24" }
+      - { id: 99, name: "Security", subnet: "192.168.100.0/24" }
+  tasks:
+    - name: "Rappel configuration VLANs sur Switchs/Hyperviseur"
+      debug:
+        msg: "Créer le VLAN {{ item.id }} ({{ item.name }}) sur l'infrastructure (Switch/vSwitch)."
+      loop: "{{ vlans }}"

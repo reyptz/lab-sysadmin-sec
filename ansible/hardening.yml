@@ -1,0 +1,44 @@
+---
+- name: Hardening OS Debian/Ubuntu
+  hosts: linux_servers
+  become: yes
+  tasks:
+    - name: Mise à jour système
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Installation paquets sécurité
+      apt:
+        name:
+          - ufw
+          - fail2ban
+          - unattended-upgrades
+        state: present
+
+    - name: Configuration UFW (SSH + refus tout)
+      ufw:
+        rule: allow
+        name: OpenSSH
+      notify: enable ufw
+
+    - name: Configuration Fail2Ban jail.local basique
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [sshd]
+          enabled = true
+          maxretry = 5
+          bantime = 1h
+      notify: restart fail2ban
+
+  handlers:
+    - name: enable ufw
+      ufw:
+        state: enabled
+        policy: deny
+
+    - name: restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted

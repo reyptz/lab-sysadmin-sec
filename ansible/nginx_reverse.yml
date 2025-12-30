@@ -1,0 +1,42 @@
+---
+- name: Nginx Reverse Proxy + Certbot
+  hosts: ubuntu_web
+  become: yes
+  vars:
+    domains:
+      - dashy.monlab.local
+      - wp.monlab.local
+
+  tasks:
+    - name: Installation Nginx et Certbot
+      apt:
+        name:
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+
+    - name: Configuration sites Nginx
+      template:
+        src: nginx_site.conf.j2
+        dest: /etc/nginx/sites-available/{{ item }}
+      loop: "{{ domains }}"
+      notify: reload nginx
+
+    - name: Activation sites
+      file:
+        src: /etc/nginx/sites-available/{{ item }}
+        dest: /etc/nginx/sites-enabled/{{ item }}
+        state: link
+      loop: "{{ domains }}"
+
+    - name: Obtention certificats Let's Encrypt (staging pour tests)
+      command: certbot --nginx -d {{ item }} --staging --agree-tos --email admin@monlab.local -n
+      loop: "{{ domains }}"
+      ignore_errors: yes  # À retirer en prod
+
+  handlers:
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded

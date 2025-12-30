@@ -1,0 +1,277 @@
+<?xml version="1.0"?>
+<opnsense>
+  <revision>
+    <time>1735286400</time>
+    <description>Configuration LAB Sécurité Entreprise - Décembre 2025</description>
+  </revision>
+
+  <system>
+    <hostname>opnsense-lab</hostname>
+    <domain>monlab.local</domain>
+    <timezone>Europe/Paris</timezone>
+    <language>fr_FR</language>
+    <webgui>
+      <protocol>https</protocol>
+      <ssl-certref>webGuiCert</ssl-certref>
+    </webgui>
+    <dns>
+      <servers>
+        <server>192.168.19.133</server> <!-- Windows AD DNS primaire -->
+        <server>192.168.19.130</server> <!-- Debian Bind9 secondaire -->
+      </servers>
+    </dns>
+    <syslog>
+      <remoteserver>192.168.19.130</remoteserver> <!-- Syslog central Debian -->
+      <sourceip>192.168.19.128</sourceip>
+    </syslog>
+  </system>
+
+  <interfaces>
+    <wan>
+      <if>em0</if>
+      <descr>WAN</descr>
+      <enable>true</enable>
+      <ipaddr>dhcp</ipaddr>
+      <spoofmac/>
+    </wan>
+    <lan>
+      <if>em1</if>
+      <descr>TRUNK_VLANs</descr>
+      <enable>true</enable>
+    </lan>
+    <vlan10>
+      <if>em1.10</if>
+      <descr>VLAN10_Users</descr>
+      <enable>true</enable>
+      <ipaddr>192.168.23.1</ipaddr>
+      <subnet>24</subnet>
+    </vlan10>
+    <vlan20>
+      <if>em1.20</if>
+      <descr>VLAN20_Servers</descr>
+      <enable>true</enable>
+      <ipaddr>192.168.19.1</ipaddr>
+      <subnet>24</subnet>
+    </vlan20>
+    <vlan99>
+      <if>em1.99</if>
+      <descr>VLAN99_SOC</descr>
+      <enable>true</enable>
+      <ipaddr>192.168.100.2</ipaddr>
+      <subnet>24</subnet>
+    </vlan99>
+  </interfaces>
+
+  <vlans>
+    <vlan>
+      <tag>10</tag>
+      <if>em1</if>
+      <descr>Users</descr>
+      <vlanif>em1.10</vlanif>
+    </vlan>
+    <vlan>
+      <tag>20</tag>
+      <if>em1</if>
+      <descr>Servers</descr>
+      <vlanif>em1.20</vlanif>
+    </vlan>
+    <vlan>
+      <tag>99</tag>
+      <if>em1</if>
+      <descr>SOC/Security</descr>
+      <vlanif>em1.99</vlanif>
+    </vlan>
+  </vlans>
+
+  <dhcpd>
+    <vlan10>
+      <enable>true</enable>
+      <range>
+        <from>192.168.23.100</from>
+        <to>192.168.23.254</to>
+      </range>
+      <dns1>192.168.1.10</dns1>
+      <dns2>192.168.20.20</dns2>
+      <gateway>192.168.23.1</gateway>
+    </vlan10>
+    <vlan20>
+      <enable>true</enable>
+      <range>
+        <from>192.168.19.100</from>
+        <to>192.168.19.254</to>
+      </range>
+    </vlan20>
+    <vlan99>
+      <enable>true</enable>
+      <range>
+        <from>192.168.100.100</from>
+        <to>192.168.100.254</to>
+      </range>
+    </vlan99>
+  </dhcpd>
+
+  <nat>
+    <outbound>
+      <mode>automatic</mode>
+    </outbound>
+  </nat>
+
+  <filter>
+    <!-- Anti-spoofing & RFC1918 -->
+    <rule>
+      <descr>Blocage RFC1918 sortant WAN</descr>
+      <interface>wan</interface>
+      <direction>out</direction>
+      <source>
+        <any/>
+      </source>
+      <destination>
+        <network>rfc1918</network>
+      </destination>
+      <action>block</action>
+      <quick>yes</quick>
+      <log>yes</log>
+    </rule>
+
+    <!-- VLAN10 Users : accès limité Internet -->
+    <rule>
+      <descr>Users → Web + DNS</descr>
+      <interface>vlan10</interface>
+      <source>
+        <network>vlan10net</network>
+      </source>
+      <destination>
+        <any/>
+      </destination>
+      <protocol>tcp/udp</protocol>
+      <destination_port_range>53,80,443</destination_port_range>
+      <gateway>WAN_DHCP</gateway>
+      <quick>yes</quick>
+    </rule>
+
+    <!-- VLAN20 Servers : accès full Internet -->
+    <rule>
+      <descr>Serveurs → Internet complet</descr>
+      <interface>vlan20</interface>
+      <source>
+        <network>vlan20net</network>
+      </source>
+      <destination>
+        <any/>
+      </destination>
+      <protocol>any</protocol>
+      <gateway>WAN_DHCP</gateway>
+      <quick>yes</quick>
+    </rule>
+
+    <!-- Accès dashboards SOC depuis Serveurs -->
+    <rule>
+      <descr>Serveurs → SOC Dashboards</descr>
+      <interface>vlan20</interface>
+      <source>
+        <network>vlan20net</network>
+      </source>
+      <destination>
+        <network>vlan99net</network>
+        <port>3000,5601,8080,9090,9200,19999</port>
+      </destination>
+      <protocol>tcp</protocol>
+      <quick>yes</quick>
+    </rule>
+
+    <!-- Protection accès direct Serveurs -->
+    <rule>
+      <descr>Blocage accès entrants Serveurs (sauf via reverse proxy)</descr>
+      <interface>vlan10,vlan99</interface>
+      <source>
+        <any/>
+      </source>
+      <destination>
+        <network>vlan20net</network>
+      </destination>
+      <action>block</action>
+      <quick>yes</quick>
+      <log>yes</log>
+    </rule>
+
+    <!-- VLAN99 SOC : ultra restrictif -->
+    <rule>
+      <descr>Accès management SOC (depuis VLAN20 uniquement)</descr>
+      <interface>vlan99</interface>
+      <source>
+        <network>vlan20net</network>
+      </source>
+      <destination>
+        <network>vlan99net</network>
+        <port>80,443,3000,5601,8080,9090</port>
+      </destination>
+      <protocol>tcp</protocol>
+      <quick>yes</quick>
+    </rule>
+
+    <!-- Blocage par défaut -->
+    <rule>
+      <descr>Blocage par défaut tout le reste</descr>
+      <interface>vlan10,vlan20,vlan99</interface>
+      <source>
+        <any/>
+      </source>
+      <destination>
+        <any/>
+      </destination>
+      <action>block</action>
+      <quick>yes</quick>
+      <log>yes</log>
+    </rule>
+  </filter>
+
+  <aliases>
+    <alias>
+      <name>rfc1918</name>
+      <type>network</type>
+      <address>10.0.0.0/8 172.16.0.0/12 192.168.0.0/16</address>
+    </alias>
+    <alias>
+      <name>Bruteforce_Blocked</name>
+      <type>network</type>
+      <address/>
+      <descr>IPs bloquées par Fail2Ban/Wazuh</descr>
+    </alias>
+  </aliases>
+
+  <unbound>
+    <enable>true</enable>
+    <forwarding>true</forwarding>
+    <regdhcp>true</regdhcp>
+  </unbound>
+
+  <ospfd>
+    <enable>true</enable>
+    <area>
+      <areaid>0.0.0.0</areaid>
+      <interfaces>vlan10,vlan20,vlan99,lan</interfaces>
+    </area>
+    <redistribute>
+      <connected>true</connected>
+    </redistribute>
+  </ospfd>
+
+  <intrusion_detection>
+    <enabled>true</enabled>
+    <ips>true</ips>
+    <interface>wan,vlan20</interface>
+    <ruleset>etopen</ruleset>
+  </intrusion_detection>
+
+  <webproxy>
+    <modsecurity>
+      <enabled>true</enabled>
+      <interface>wan</interface>
+      <ruleset>crs</ruleset>
+    </modsecurity>
+  </webproxy>
+
+  <certificates>
+    <!-- Certificat Let's Encrypt pour reverse proxy interne si besoin -->
+  </certificates>
+</opnsense>

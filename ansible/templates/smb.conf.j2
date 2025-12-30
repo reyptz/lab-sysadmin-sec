@@ -1,0 +1,12 @@
+[global]
+   workgroup = MONLAB
+   security = user
+   map to guest = never
+
+[partage]
+   path = /srv/partage
+   browseable = yes
+   writable = yes
+   valid users = user1, @admins
+   create mask = 0664
+   directory mask = 0775

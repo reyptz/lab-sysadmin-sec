@@ -1,0 +1,5 @@
+collections:
+  - name: community.general
+  - name: ansible.posix     # SELinux, firewalld
+  - name: devopsfaith.krb5  # Kerberos/AD
+  - name: cyva.accs         # Trivy vulnerability scanner

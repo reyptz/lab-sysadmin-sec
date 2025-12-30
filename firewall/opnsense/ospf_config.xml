@@ -1,0 +1,12 @@
+<ospf>
+  <enabled>1</enabled>
+  <areas>
+    <area>
+      <area_id>0.0.0.0</area_id>
+      <interfaces>vlan10,vlan20,vlan99,lan</interfaces>
+    </area>
+  </areas>
+  <redistribute>
+    <connected>1</connected>
+  </redistribute>
+</ospf>
