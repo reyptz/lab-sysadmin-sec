@@ -1,0 +1,468 @@
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+  observability:
+    driver: bridge
+  database:
+    driver: bridge
+  security:
+    driver: bridge
+  messaging:
+    driver: bridge
+
+x-defaults: &defaults
+  restart: unless-stopped
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+
+  # ────────────────────────────────────────────────
+  # Core Infrastructure & Ingress (frontend)
+  # ────────────────────────────────────────────────
+
+  traefik:
+    <<: *defaults
+    image: traefik:latest
+    container_name: traefik
+    profiles: ["frontend", "core"]
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=frontend"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080" # Dashboard Traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.localhost`)"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+
+  nginx:
+    <<: *defaults
+    image: nginx:latest
+    container_name: nginx
+    profiles: ["frontend"]
+    ports:
+      - "8086:80"
+    networks:
+      - frontend
+
+  envoy:
+    <<: *defaults
+    image: envoyproxy/envoy:v1.32.6
+    container_name: envoy
+    profiles: ["frontend"]
+    ports:
+      - "10000:10000"
+      - "9901:9901" # Admin GUI
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    networks:
+      - frontend
+
+  # ────────────────────────────────────────────────
+  # Databases (core/database)
+  # ────────────────────────────────────────────────
+
+  postgres:
+    <<: *defaults
+    image: postgres:13
+    container_name: postgres
+    profiles: ["core", "database"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASS:-admin}
+      POSTGRES_DB: app_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - database
+
+  mongo:
+    <<: *defaults
+    image: mongo:7
+    container_name: mongo
+    profiles: ["core", "database"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - database
+
+  redis:
+    <<: *defaults
+    image: redis:latest
+    container_name: redis
+    profiles: ["core"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+
+  # ────────────────────────────────────────────────
+  # Messaging & Coordination (messaging)
+  # ────────────────────────────────────────────────
+
+  zookeeper-39:
+    <<: *defaults
+    image: zookeeper:3.9
+    container_name: zookeeper-39
+    profiles: ["messaging", "core"]
+    networks:
+      - messaging
+
+  zookeeper-latest:
+    <<: *defaults
+    image: zookeeper:latest
+    container_name: zookeeper-latest
+    profiles: ["messaging"]
+    networks:
+      - messaging
+
+  kafka:
+    <<: *defaults
+    image: apache/kafka:latest
+    container_name: kafka
+    profiles: ["messaging", "core"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      CLUSTER_ID: "4L6g3nShTqKq2z5j6v8m9Q=="
+    networks:
+      - messaging
+
+  rabbitmq-3:
+    <<: *defaults
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq-3
+    profiles: ["messaging"]
+    ports:
+      - "15673:15672" # Management GUI
+    networks:
+      - messaging
+
+  rabbitmq-313:
+    <<: *defaults
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq-313
+    profiles: ["messaging", "core"]
+    ports:
+      - "15672:15672" # Management GUI
+    networks:
+      - messaging
+
+  # ────────────────────────────────────────────────
+  # Security (security)
+  # ────────────────────────────────────────────────
+
+  keycloak:
+    <<: *defaults
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    profiles: ["security"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASS:-admin}
+      KC_DB: dev-file
+    ports:
+      - "8081:8080" # GUI
+    command: start-dev
+    networks:
+      - security
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`auth.localhost`)"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+
+  vault:
+    <<: *defaults
+    image: hashicorp/vault:latest
+    container_name: vault
+    profiles: ["security"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-root}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200" # GUI
+    networks:
+      - security
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vault.rule=Host(`vault.localhost`)"
+      - "traefik.http.services.vault.loadbalancer.server.port=8200"
+
+  consul:
+    <<: *defaults
+    image: hashicorp/consul:latest
+    container_name: consul
+    profiles: ["security"]
+    command: agent -dev -client=0.0.0.0
+    ports:
+      - "8500:8500" # GUI
+    networks:
+      - security
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.consul.rule=Host(`consul.localhost`)"
+      - "traefik.http.services.consul.loadbalancer.server.port=8500"
+
+  # ────────────────────────────────────────────────
+  # CI/CD & Quality (ci)
+  # ────────────────────────────────────────────────
+
+  jenkins-lts:
+    <<: *defaults
+    image: jenkins/jenkins:lts
+    container_name: jenkins-lts
+    profiles: ["ci"]
+    ports:
+      - "8082:8080" # GUI
+    networks:
+      - backend
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jenkins-lts.rule=Host(`jenkins-lts.localhost`)"
+      - "traefik.http.services.jenkins-lts.loadbalancer.server.port=8080"
+
+  jenkins-latest:
+    <<: *defaults
+    image: jenkins/jenkins:latest
+    container_name: jenkins-latest
+    profiles: ["ci"]
+    ports:
+      - "8085:8080" # GUI
+    networks:
+      - backend
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jenkins-latest.rule=Host(`jenkins.localhost`)"
+      - "traefik.http.services.jenkins-latest.loadbalancer.server.port=8080"
+
+  sonarqube:
+    <<: *defaults
+    image: sonarqube:community
+    container_name: sonarqube
+    profiles: ["ci"]
+    ports:
+      - "9000:9000" # GUI
+    networks:
+      - backend
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sonarqube.rule=Host(`sonar.localhost`)"
+      - "traefik.http.services.sonarqube.loadbalancer.server.port=9000"
+
+  # ────────────────────────────────────────────────
+  # Big Data & Workflow (bigdata)
+  # ────────────────────────────────────────────────
+
+  airflow:
+    <<: *defaults
+    image: apache/airflow:latest
+    container_name: airflow
+    profiles: ["bigdata"]
+    command: standalone
+    ports:
+      - "8083:8080" # GUI
+    networks:
+      - backend
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.airflow.rule=Host(`airflow.localhost`)"
+      - "traefik.http.services.airflow.loadbalancer.server.port=8080"
+
+  spark-master:
+    <<: *defaults
+    image: apache/spark:4.1.0-preview4-scala2.13-java21-python3-r-ubuntu
+    container_name: spark-master
+    profiles: ["bigdata"]
+    ports:
+      - "8084:8080" # GUI
+    networks:
+      - backend
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.spark.rule=Host(`spark.localhost`)"
+      - "traefik.http.services.spark.loadbalancer.server.port=8080"
+
+  # ────────────────────────────────────────────────
+  # Observability (observability)
+  # ────────────────────────────────────────────────
+
+  prometheus:
+    <<: *defaults
+    image: prom/prometheus:latest
+    container_name: prometheus
+    profiles: ["observability"]
+    ports:
+      - "9090:9090" # GUI
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - observability
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.localhost`)"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+  alertmanager:
+    <<: *defaults
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    profiles: ["observability"]
+    ports:
+      - "9093:9093" # GUI
+    networks:
+      - observability
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.alertmanager.rule=Host(`alert.localhost`)"
+      - "traefik.http.services.alertmanager.loadbalancer.server.port=9093"
+
+  grafana:
+    <<: *defaults
+    image: grafana/grafana:latest
+    container_name: grafana
+    profiles: ["observability"]
+    ports:
+      - "3000:3000" # GUI
+    networks:
+      - observability
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.localhost`)"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  loki:
+    <<: *defaults
+    image: grafana/loki:latest
+    container_name: loki
+    profiles: ["observability"]
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100" # API
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
+    networks:
+      - observability
+
+  promtail:
+    <<: *defaults
+    image: grafana/promtail:latest
+    container_name: promtail
+    profiles: ["observability"]
+    volumes:
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+    networks:
+      - observability
+
+  tempo:
+    <<: *defaults
+    image: grafana/tempo:latest
+    container_name: tempo
+    profiles: ["observability"]
+    command: ["--config.file=/etc/tempo.yaml"]
+    ports:
+      - "3200:3200" # GUI/API
+    volumes:
+      - ./tempo-config.yml:/etc/tempo.yaml:ro
+    networks:
+      - observability
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tempo.rule=Host(`tempo.localhost`)"
+      - "traefik.http.services.tempo.loadbalancer.server.port=3200"
+
+  otel-collector:
+    <<: *defaults
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    profiles: ["observability"]
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    networks:
+      - observability
+
+  logstash:
+    <<: *defaults
+    image: logstash:9.2.2
+    container_name: logstash
+    profiles: ["observability"]
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    networks:
+      - observability
+
+  splunk:
+    <<: *defaults
+    image: splunk/splunk:latest
+    container_name: splunk
+    profiles: ["observability"]
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_PASSWORD=${SPLUNK_PASS:-admin}
+    ports:
+      - "8000:8000" # GUI
+    networks:
+      - observability
+      - frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.splunk.rule=Host(`splunk.localhost`)"
+      - "traefik.http.services.splunk.loadbalancer.server.port=8000"
+
+  # ────────────────────────────────────────────────
+  # Utilities / Test (test)
+  # ────────────────────────────────────────────────
+
+  log-generator:
+    <<: *defaults
+    image: alpine:latest
+    container_name: log-generator
+    profiles: ["test", "observability"]
+    command: sh -c "while true; do echo \"[$(date)] Log from alpine\"; sleep 10; done"
+    networks:
+      - observability
+
+volumes:
+  pg-data:
+  mongo-data:
+  redis-data:
