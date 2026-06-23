@@ -1,0 +1,99 @@
+---
+- name: RHCSA — cron/at jobs, File Permissions, ACLs
+  hosts: linux_servers
+  become: yes
+  vars:
+    demo_user: "rhcsauser"
+    demo_group: "rhcsagroup"
+    shared_dir: "/srv/rhcsa_share"
+    restricted_file: "/srv/rhcsa_share/restricted.txt"
+
+  tasks:
+    - name: Ensure demo user exists
+      user:
+        name: "{{ demo_user }}"
+        state: present
+        create_home: yes
+
+    - name: Ensure demo group exists
+      group:
+        name: "{{ demo_group }}"
+        state: present
+
+    - name: Add demo user to demo group
+      user:
+        name: "{{ demo_user }}"
+        groups: "{{ demo_group }}"
+        append: yes
+
+    - name: Ensure shared directory exists
+      file:
+        path: "{{ shared_dir }}"
+        state: directory
+        owner: root
+        group: "{{ demo_group }}"
+        mode: '2775'  # setgid
+
+    - name: Create a restricted file
+      copy:
+        content: "RHCSA ACL demo file\n"
+        dest: "{{ restricted_file }}"
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Install ACL package
+      package:
+        name: acl
+        state: present
+
+    - name: Set ACL for demo user on restricted file
+      ansible.posix.acl:
+        path: "{{ restricted_file }}"
+        entity: "{{ demo_user }}"
+        etype: user
+        permissions: rw
+        state: present
+
+    - name: Set default ACL on shared directory
+      ansible.posix.acl:
+        path: "{{ shared_dir }}"
+        entity: "{{ demo_group }}"
+        etype: group
+        permissions: rwx
+        default: yes
+        state: present
+
+    - name: Show ACL on restricted file
+      ansible.builtin.command: getfacl "{{ restricted_file }}"
+      register: acl_output
+      changed_when: false
+
+    - name: Display ACL
+      debug:
+        msg: "{{ acl_output.stdout }}"
+
+    - name: Create a cron job for demo user (daily backup log)
+      ansible.builtin.cron:
+        name: "RHCSA daily log backup"
+        user: "{{ demo_user }}"
+        job: "tar czf /tmp/logs-$(date +\\%Y\\%m\\%d).tar.gz /var/log/syslog 2>/dev/null || tar czf /tmp/logs-$(date +\\%Y\\%m\\%d).tar.gz /var/log/messages 2>/dev/null"
+        minute: "0"
+        hour: "2"
+        state: present
+
+    - name: Create an at job (one-time task in 1 minute for demo purposes)
+      ansible.builtin.shell: |
+        echo "echo 'RHCSA at job executed at $(date)' >> /tmp/at_test.log" | at now + 1 minute 2>/dev/null || true
+      changed_when: true
+      ignore_errors: yes
+
+    - name: List crontab for demo user
+      ansible.builtin.command: crontab -u {{ demo_user }} -l
+      register: crontab_out
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display crontab
+      debug:
+        msg: "{{ crontab_out.stdout }}"

@@ -1,0 +1,131 @@
+---
+- name: RHCSA — Podman Containers (rootless + systemd + volumes)
+  hosts: linux_servers
+  become: yes
+  vars:
+    container_user: "teti"
+    container_image: "registry.access.redhat.com/ubi9/httpd-24"
+    container_name: "rhcsa-httpd"
+    host_port: "8080"
+    container_port: "8080"
+    volume_path: "/home/{{ container_user }}/web-content"
+
+  tasks:
+    # --- Installation ---
+    - name: Ensure Podman and dependencies are installed
+      package:
+        name:
+          - podman
+          - podman-compose
+          - slirp4netns
+          - uidmap
+          - buildah
+          - skopeo
+        state: present
+
+    - name: Ensure container user exists
+      user:
+        name: "{{ container_user }}"
+        state: present
+        create_home: yes
+
+    - name: Enable linger for rootless containers
+      ansible.builtin.command: loginctl enable-linger {{ container_user }}
+      args:
+        creates: "/var/lib/systemd/linger/{{ container_user }}"
+
+    # --- Volume management (RHCSA objective) ---
+    - name: Create persistent volume directory
+      file:
+        path: "{{ volume_path }}"
+        state: directory
+        owner: "{{ container_user }}"
+        group: "{{ container_user }}"
+        mode: '0755'
+
+    - name: Deploy sample web content
+      copy:
+        content: "<h1>RHCSA Podman Lab — {{ inventory_hostname }}</h1>"
+        dest: "{{ volume_path }}/index.html"
+        owner: "{{ container_user }}"
+        group: "{{ container_user }}"
+        mode: '0644'
+
+    # --- Container image management ---
+    - name: Pull the container image
+      become_user: "{{ container_user }}"
+      containers.podman.podman_image:
+        name: "{{ container_image }}"
+        state: present
+
+    - name: List local images
+      become_user: "{{ container_user }}"
+      ansible.builtin.command: podman images --format "table {{.Repository}} {{.Tag}} {{.Size}}"
+      register: podman_images
+      changed_when: false
+
+    - name: Display images
+      debug:
+        msg: "{{ podman_images.stdout }}"
+
+    # --- Run container with volume (RHCSA objective) ---
+    - name: Create and run container with persistent volume
+      become_user: "{{ container_user }}"
+      containers.podman.podman_container:
+        name: "{{ container_name }}"
+        image: "{{ container_image }}"
+        state: started
+        ports:
+          - "{{ host_port }}:{{ container_port }}"
+        volumes:
+          - "{{ volume_path }}:/var/www/html:Z"
+        generate_systemd:
+          path: "~/.config/systemd/user/"
+          new: true
+          restart_policy: always
+
+    # --- systemd user service (RHCSA objective) ---
+    - name: Enable container systemd service
+      become_user: "{{ container_user }}"
+      ansible.builtin.systemd:
+        name: "container-{{ container_name }}"
+        scope: user
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    # --- Inspect and verify ---
+    - name: Show running containers
+      become_user: "{{ container_user }}"
+      ansible.builtin.command: podman ps --format "table {{.Names}} {{.Status}} {{.Ports}}"
+      register: podman_ps
+      changed_when: false
+
+    - name: Verify port is accessible
+      wait_for:
+        port: "{{ host_port }}"
+        timeout: 10
+
+    - name: Inspect container mounts
+      become_user: "{{ container_user }}"
+      ansible.builtin.command: podman inspect {{ container_name }} --format "{{ '{{' }} range .Mounts {{ '}}' }}{{ '{{' }}.Source{{ '}}' }} -> {{ '{{' }}.Destination{{ '}}' }} {{ '{{' }}end{{ '}}' }}"
+      register: mounts
+      changed_when: false
+
+    - name: Display container info
+      debug:
+        msg:
+          - "Running: {{ podman_ps.stdout }}"
+          - "Mounts: {{ mounts.stdout }}"
+
+    # --- Container logs (RHCSA objective) ---
+    - name: Show container logs
+      become_user: "{{ container_user }}"
+      ansible.builtin.command: podman logs --tail 5 {{ container_name }}
+      register: container_logs
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display logs
+      debug:
+        msg: "{{ container_logs.stdout | default('No logs yet') }}"

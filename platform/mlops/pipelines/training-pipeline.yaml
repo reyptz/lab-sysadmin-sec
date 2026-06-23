@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: risk-default-payment-training
+  namespace: mlops
+spec:
+  entrypoint: pipeline
+  templates:
+    - name: pipeline
+      steps:
+        - - name: fetch-data
+            template: fetch-data
+        - - name: train-model
+            template: train-model
+        - - name: evaluate-model
+            template: evaluate-model
+        - - name: register-model
+            template: register-model
+
+    - name: fetch-data
+      container:
+        image: ghcr.io/myorg/mlops-training:latest
+        command: [python, -m, pipeline.fetch_data]
+        env:
+          - name: DATA_SOURCE
+            value: "s3://datasets/risk-default-payment/"
+
+    - name: train-model
+      container:
+        image: ghcr.io/myorg/mlops-training:latest
+        command: [python, -m, pipeline.train]
+        env:
+          - name: MODEL_NAME
+            value: "risk-default-payment"
+          - name: MLFLOW_TRACKING_URI
+            value: "http://mlflow.mlops.svc.cluster.local:5000"
+
+    - name: evaluate-model
+      container:
+        image: ghcr.io/myorg/mlops-training:latest
+        command: [python, -m, pipeline.evaluate]
+        env:
+          - name: MODEL_NAME
+            value: "risk-default-payment"
+
+    - name: register-model
+      container:
+        image: ghcr.io/myorg/mlops-training:latest
+        command: [python, -m, pipeline.register]
+        env:
+          - name: MODEL_NAME
+            value: "risk-default-payment"
+          - name: MIN_F1_SCORE
+            value: "0.75"

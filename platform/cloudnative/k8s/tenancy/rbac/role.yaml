@@ -1,0 +1,19 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: erp-app
+  namespace: erp-prod
+rules:
+  # Lecture de sa propre config (liveness/readiness parfois utile)
+  - apiGroups: ['']
+    resources: ['pods']
+    verbs: ['get', 'list']
+  # Lecture des endpoints du service pour discovery
+  - apiGroups: ['']
+    resources: ['endpoints', 'services']
+    verbs: ['get', 'list']
+  # Lecture des secrets managed par External Secrets Operator (lecture seule)
+  - apiGroups: ['']
+    resources: ['secrets']
+    verbs: ['get']
+    resourceNames: ['erp-db-credentials']

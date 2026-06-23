@@ -1,0 +1,194 @@
+---
+- name: RHCSA — firewalld zones, rich rules + nmcli networking
+  hosts: linux_servers
+  become: yes
+  vars:
+    interface_name: "eth0"
+    static_ip: "192.168.19.150"
+    prefix: "24"
+    gateway: "192.168.19.1"
+    dns1: "192.168.19.130"
+    dns2: "8.8.8.8"
+    dns_search: "monlab.local"
+    trusted_subnet: "192.168.19.0/24"
+
+  tasks:
+    # --- firewalld ---
+    - name: Ensure firewalld is installed and running
+      package:
+        name: firewalld
+        state: present
+
+    - name: Enable firewalld
+      service:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Set default zone to public
+      ansible.builtin.command: firewall-cmd --set-default-zone=public
+      changed_when: false
+
+    - name: Allow services via firewalld (public zone)
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: public
+      loop:
+        - ssh
+        - http
+        - https
+        - dns
+        - cockpit
+
+    - name: Add custom port for monitoring (9090/tcp)
+      ansible.posix.firewalld:
+        port: "9090/tcp"
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: public
+
+    - name: Add rich rule — accept ICMP
+      ansible.posix.firewalld:
+        rich_rule: 'rule protocol value="icmp" accept'
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: public
+
+    - name: Add rich rule — rate-limit SSH (max 3 per minute)
+      ansible.posix.firewalld:
+        rich_rule: 'rule service name="ssh" accept limit value="3/m"'
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: public
+
+    - name: Add rich rule — drop traffic from specific subnet
+      ansible.posix.firewalld:
+        rich_rule: 'rule family="ipv4" source address="10.99.99.0/24" drop'
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: public
+
+    # --- Zone management (RHCSA objective) ---
+    - name: Create trusted zone for internal LAN
+      ansible.posix.firewalld:
+        source: "{{ trusted_subnet }}"
+        zone: trusted
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Allow all services in trusted zone
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: trusted
+      loop:
+        - ssh
+        - samba
+        - nfs
+        - dns
+        - ntp
+
+    # --- Assign interface to zone ---
+    - name: Assign interface to public zone
+      ansible.posix.firewalld:
+        interface: "{{ interface_name }}"
+        zone: public
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    # --- Port forwarding (RHCSA objective) ---
+    - name: Forward port 8080 to 80
+      ansible.posix.firewalld:
+        rich_rule: 'rule family="ipv4" forward-port port="8080" protocol="tcp" to-port="80"'
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: public
+
+    # --- nmcli networking ---
+    - name: Ensure NetworkManager is installed and running
+      package:
+        name: NetworkManager
+        state: present
+
+    - name: Enable NetworkManager
+      service:
+        name: NetworkManager
+        state: started
+        enabled: yes
+
+    - name: Configure static IPv4 with nmcli
+      community.general.nmcli:
+        type: ethernet
+        conn_name: "{{ interface_name }}"
+        ifname: "{{ interface_name }}"
+        ip4: "{{ static_ip }}/{{ prefix }}"
+        gw4: "{{ gateway }}"
+        dns4:
+          - "{{ dns1 }}"
+          - "{{ dns2 }}"
+        dns4_search:
+          - "{{ dns_search }}"
+        state: present
+        autoconnect: yes
+        method4: manual
+
+    # --- IPv6 configuration (RHCSA objective) ---
+    - name: Configure IPv6 static address
+      community.general.nmcli:
+        type: ethernet
+        conn_name: "{{ interface_name }}"
+        ifname: "{{ interface_name }}"
+        ip6: "fd00::150/64"
+        gw6: "fd00::1"
+        method6: manual
+        state: present
+
+    - name: Reload connection
+      ansible.builtin.command: nmcli connection up "{{ interface_name }}"
+      changed_when: false
+      ignore_errors: yes
+
+    # --- Hostname (RHCSA objective) ---
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "rhcsa-lab.monlab.local"
+
+    - name: Ensure /etc/hosts entry
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ static_ip }} rhcsa-lab.monlab.local rhcsa-lab"
+        state: present
+
+    # --- Verification ---
+    - name: Show active firewall zones
+      ansible.builtin.command: firewall-cmd --get-active-zones
+      register: active_zones
+      changed_when: false
+
+    - name: Show public zone services
+      ansible.builtin.command: firewall-cmd --zone=public --list-all
+      register: public_zone
+      changed_when: false
+
+    - name: Show network config
+      ansible.builtin.command: nmcli connection show "{{ interface_name }}"
+      register: nmcli_show
+      changed_when: false
+
+    - name: Display results
+      debug:
+        msg:
+          - "Zones: {{ active_zones.stdout }}"
+          - "Public zone: {{ public_zone.stdout }}"

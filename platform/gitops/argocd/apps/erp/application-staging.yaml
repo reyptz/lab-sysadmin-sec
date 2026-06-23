@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: erp-staging
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: erp
+  source:
+    repoURL: https://github.com/reyptz/lab-sysadmin-sec.git
+    targetRevision: main
+    path: platform/gitops/argocd/apps/erp/overlays/staging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: erp-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

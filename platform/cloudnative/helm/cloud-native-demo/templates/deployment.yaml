@@ -1,0 +1,58 @@
+# apiVersion apps/v1 est l'API standard pour gérer les Deployments dans Kubernetes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Nommage dynamique basé sur la Release Helm pour éviter les collisions de noms.
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: {{ .Chart.Name }}
+spec:
+  # RÈGLE SRE / HPA : Si l'Autoscaling automatique est activé dans le values.yaml,
+  # on ne doit PAS spécifier de replicas ici. Sinon, lors d'un "helm upgrade", Helm écrasera 
+  # la décision de l'autoscaler (qui a pu monter à 5 Pods) et le forcera à redescendre à la valeur fixe (ex: 2).
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  # Le selecteur indique au Deployment quels Pods il doit surveiller et gérer.
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  # Le template définit la configuration des Pods qui seront créés.
+  template:
+    metadata:
+      labels:
+        # Ces labels doivent correspondre EXACTEMENT au selector ci-dessus.
+        app: {{ .Chart.Name }}
+    spec:
+      containers:
+      - name: {{ .Chart.Name }}
+        # L'image et son tag sont construits dynamiquement depuis les configurations du values.yaml.
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        # PullPolicy définit le comportement de récupération d'image (ex: IfNotPresent évite de télécharger si présente localement).
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: 3000 # Le port réel sur lequel notre code Node.js écoute dans le conteneur.
+        
+        # SRE Best Practice : Gestion fine des ressources allouées au conteneur.
+        resources:
+          # Le bloc resources de values.yaml est converti en YAML et injecté ici avec la bonne indentation.
+          {{- toYaml .Values.resources | nindent 10 }}
+          
+        # Liveness Probe : Sonde de vitalité. 
+        # Kubernetes vérifie si le conteneur tourne. S'il ne répond pas (ex: deadlock), K8s le redémarre.
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5 # Temps d'attente avant de lancer la première vérification au démarrage du Pod.
+          periodSeconds: 10      # Fréquence de vérification.
+          
+        # Readiness Probe : Sonde de disponibilité.
+        # Kubernetes vérifie si l'application est prête à traiter des requêtes des utilisateurs.
+        # Si cette sonde échoue, le Pod est temporairement retiré du Service (plus de trafic vers lui).
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 2 # Initialisation rapide car l'app Node.js démarre presque instantanément.
+          periodSeconds: 5

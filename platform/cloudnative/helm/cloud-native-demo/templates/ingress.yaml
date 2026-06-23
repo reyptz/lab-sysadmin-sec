@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled -}}
+# apiVersion networking.k8s.io/v1 est la version stable pour les ressources Ingress dans Kubernetes.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  # Génération d'un nom unique combinant le nom de la Release Helm et le nom du Chart.
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    # Label standard pour retrouver facilement l'Ingress associé à notre application.
+    app: {{ .Chart.Name }}
+  # Les annotations permettent de configurer le comportement spécifique de l'Ingress Controller NGINX.
+  # Helm va copier le bloc défini sous 'ingress.annotations' dans values.yaml et l'indenter ici.
+  {{- if .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  # Définit quelle classe d'Ingress Controller doit traiter cette ressource (ex: "nginx").
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    # Boucle sur la liste des hôtes (domaines) configurés dans values.yaml.
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          # Boucle sur les différents chemins d'URL (paths) associés à cet hôte.
+          {{- range .paths }}
+          - path: {{ .path }}
+            # Prefix signifie que tout chemin commençant par la valeur spécifiée sera redirigé (ex: /path/quelque-chose).
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                # Spécifie le Service cible vers lequel envoyer le trafic web.
+                name: {{ $.Release.Name }}-{{ $.Chart.Name }}-svc
+                port:
+                  # Le port du Service cible (défini dans values.yaml).
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

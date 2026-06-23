@@ -1,0 +1,87 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: erp-app
+  labels:
+    app: erp-app
+spec:
+  replicas: 3
+  strategy:
+    canary:
+      canaryService: erp-app-canary
+      stableService: erp-app
+      trafficRouting:
+        # Exemple avec Istio ; adapter selon le service mesh en place
+        managedRoutes:
+          - name: erp-app
+        istio:
+          virtualService:
+            name: erp-app
+            routes:
+              - primary
+      steps:
+        - setWeight: 10
+        - pause: { duration: 5m }
+        - setWeight: 25
+        - pause: { duration: 10m }
+        - analysis:
+            templates:
+              - templateName: success-rate
+        - setWeight: 50
+        - pause: { duration: 10m }
+        - setWeight: 75
+        - pause: { duration: 5m }
+        - setWeight: 100
+  selector:
+    matchLabels:
+      app: erp-app
+  template:
+    metadata:
+      labels:
+        app: erp-app
+    spec:
+      serviceAccountName: erp-app
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: erp-app
+          image: erp-app:prod-latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: PORT
+              value: '3000'
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: erp-db-credentials
+                  key: password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

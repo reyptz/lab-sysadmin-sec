@@ -1,0 +1,51 @@
+apiVersion: sre.lab/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: api-invoices-availability
+  namespace: sre
+  labels:
+    app: api-invoices
+    team: billing
+spec:
+  service: api-invoices
+  description: "Taux de requêtes HTTP 2xx/3xx sur le endpoint /invoices"
+  slis:
+    - name: availability
+      metric: app_http_requests_total
+      selector:
+        route: /invoices
+        status!~: "5.."
+      target: 0.999
+      window: 30d
+      expression: |
+        sum(rate(app_http_requests_total{route="/invoices",status!~"5.."}[30d]))
+        /
+        sum(rate(app_http_requests_total{route="/invoices"}[30d]))
+    - name: latency_p95
+      metric: app_http_request_duration_seconds
+      selector:
+        route: /invoices
+      target: 0.99
+      window: 30d
+      expression: |
+        histogram_quantile(0.95,
+          sum(rate(app_http_request_duration_seconds_bucket{route="/invoices"}[5m])) by (le)
+        ) < 0.3
+  slo:
+    availability: 99.9
+    latency_p95: 99.0
+  error_budget:
+    availability: 0.1
+    window: 30d
+    burn_rate_alerts:
+      - name: fast_burn
+        burn_rate: 14.4
+        window: 2h
+        severity: critical
+      - name: slow_burn
+        burn_rate: 2
+        window: 6h
+        severity: warning
+  alerting:
+    - alert: APIInvoicesAvailabilityBurn
+      summary: "API /invoices error budget is burning fast"

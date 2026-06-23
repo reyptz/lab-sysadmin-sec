@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-native-demo
+  labels:
+    app: cloud-native-demo
+spec:
+  # Nous demandons 2 instances (Pods) pour assurer la haute disponibilité
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloud-native-demo
+  template:
+    metadata:
+      labels:
+        app: cloud-native-demo
+    spec:
+      containers:
+      - name: web-app
+        # Le tag correspond à ce que nous avons construit à l'étape 2
+        image: cloud-native-demo:1.0.0
+        # 'IfNotPresent' ou 'Never' empêche K8s d'essayer de télécharger l'image sur internet, 
+        # il utilisera le cache local de ta machine.
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        
+        # SRE Best Practice 1 : Gérer les ressources (Requests/Limits)
+        # Empêche un Pod défectueux de consommer toute la RAM/CPU du cluster
+        resources:
+          requests:
+            cpu: "100m"     # 0.1 vCPU minimum garanti
+            memory: "64Mi"  # 64 Mo de RAM garantis
+          limits:
+            cpu: "250m"     # Ne peut pas dépasser 0.25 vCPU
+            memory: "128Mi" # Ne peut pas dépasser 128 Mo de RAM
+
+        # SRE Best Practice 2 : Liveness Probe (Sonde de vie)
+        # Si la route /health ne répond plus (200 OK), Kubernetes redémarre le conteneur.
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+        # SRE Best Practice 3 : Readiness Probe (Sonde de préparation)
+        # Kubernetes n'enverra du trafic réseau au Pod QUE si cette sonde réussit.
+        # Idéal si l'app met du temps à démarrer (ex: connexion BDD).
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 2
+          periodSeconds: 5

@@ -1,0 +1,51 @@
+# values.yaml : Fichier de configuration centralisé de notre Helm Chart.
+# C'est ce fichier que l'administrateur ou le pipeline CI/CD modifie pour adapter le déploiement.
+
+# Nombre initial de réplicas de Pods (utilisé uniquement si l'HPA est désactivé)
+replicaCount: 2
+
+# Configuration de l'image de conteneur
+image:
+  # Nom de l'image Docker locale ou distante
+  repository: cloud-native-demo
+  # Ne récupère pas l'image sur le registre internet si elle est déjà présente localement (idéal pour le développement local)
+  pullPolicy: IfNotPresent
+  # Tag correspondant à la version de l'application construite
+  tag: "1.0.0"
+
+# Configuration réseau interne du Service Kubernetes
+service:
+  type: ClusterIP # Reste interne au cluster, sécurité maximale. L'exposition passe par l'Ingress.
+  port: 80        # Port interne pour le trafic interne
+
+# Configuration de la passerelle d'accès externe (Ingress)
+ingress:
+  enabled: true
+  className: "nginx" # Cible l'Ingress Controller NGINX installé sur le cluster
+  # Annotations avancées spécifiques à NGINX pour modifier son comportement à la volée.
+  annotations:
+    # Rate Limiting (SRE Sécurité) : Limite à 5 requêtes par seconde, par adresse IP.
+    # Utile pour se protéger contre les surcharges, les scripts abusifs ou les attaques de brute-force.
+    nginx.ingress.kubernetes.io/limit-rps: "5"
+  hosts:
+    - host: demo.local # Faux nom de domaine pour simuler un accès de production
+      paths:
+        - path: /
+          pathType: Prefix # Correspond à tout chemin commençant par "/"
+
+# SRE Best Practice : Configuration des allocations de ressources matérielles pour nos Pods.
+# Cela garantit la stabilité et empêche le phénomène du "Noisy Neighbor" (un Pod qui sature le CPU d'un Node entier).
+resources:
+  requests:
+    cpu: 100m     # 0.1 vCPU (100 millicores) réservé pour chaque Pod
+    memory: 64Mi  # 64 Mo de RAM garantis pour chaque Pod
+  limits:
+    cpu: 250m     # Le Pod ne pourra pas consommer plus de 0.25 vCPU
+    memory: 128Mi # Le Pod sera tué par Kubernetes (OOMKilled) s'il tente d'utiliser plus de 128 Mo de RAM
+
+# Configuration du scaling automatique horizontal des Pods (HPA)
+autoscaling:
+  enabled: true
+  minReplicas: 2  # Le cluster gardera toujours au minimum 2 Pods pour la haute disponibilité
+  maxReplicas: 10 # En cas de pic de charge, K8s créera automatiquement jusqu'à 10 Pods
+  targetCPUUtilizationPercentage: 80 # Déclenche le scaling si la consommation CPU moyenne dépasse 80% des ressources demandées (requests)

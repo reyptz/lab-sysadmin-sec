@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: erp
+  namespace: argocd
+spec:
+  description: ERP/CRM Fintech — application critique
+
+  # Namespaces autorisées pour ce projet
+  destinations:
+    - namespace: erp-dev
+      server: https://kubernetes.default.svc
+    - namespace: erp-staging
+      server: https://kubernetes.default.svc
+    - namespace: erp-prod
+      server: https://kubernetes.default.svc
+
+  # Sources Git autorisées
+  sourceRepos:
+    - https://github.com/reyptz/lab-sysadmin-sec.git
+
+  # RBAC : seuls les membres de l'equipe platform peuvent synchroniser
+  roles:
+    - name: platform-admin
+      description: Administrateurs de la plateforme ERP
+      policies:
+        - p, proj:erp:platform-admin, applications, *, erp/*, allow
+      groups:
+        - platform-team
+
+  # Restrictions de ressources (bonne pratique fintech)
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    - group: networking.k8s.io
+      kind: NetworkPolicy

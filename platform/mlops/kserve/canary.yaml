@@ -1,0 +1,36 @@
+apiVersion: "serving.kserve.io/v1beta1"
+kind: "InferenceService"
+metadata:
+  name: "risk-default-payment"
+  namespace: mlops
+  annotations:
+    serving.kserve.io/canaryTrafficPercent: "10"
+spec:
+  predictor:
+    canary:
+      model:
+        modelFormat:
+          name: sklearn
+        storageUri: "s3://mlflow-models/risk-default-payment/2/model"
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: "100m"
+            memory: 512Mi
+      minReplicas: 1
+      maxReplicas: 3
+    model:
+      modelFormat:
+        name: sklearn
+      storageUri: "s3://mlflow-models/risk-default-payment/1/model"
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+        requests:
+          cpu: "100m"
+          memory: 512Mi
+    minReplicas: 2
+    maxReplicas: 5

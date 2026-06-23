@@ -1,0 +1,16 @@
+framework:
+  - terraform
+  - kubernetes
+  - dockerfile
+
+soft-fail: false
+
+compact: true
+
+output:
+  - sarif
+
+skip-check:
+  # Autoriser certains ajustements spécifiques au lab
+  - CKV_AWS_8
+  - CKV_AWS_79

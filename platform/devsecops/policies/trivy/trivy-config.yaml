@@ -1,0 +1,18 @@
+severity:
+  - CRITICAL
+  - HIGH
+
+scan:
+  scanners:
+    - vuln
+    - misconfig
+    - secret
+
+vulnerability:
+  ignore-unfixed: false
+
+report:
+  format: sarif
+  output: trivy-results.sarif
+
+exit-code: 1

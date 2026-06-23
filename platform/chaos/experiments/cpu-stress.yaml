@@ -1,0 +1,17 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: api-invoices-cpu-stress
+  namespace: chaos-testing
+spec:
+  duration: "5m"
+  selector:
+    namespaces:
+      - billing
+    labelSelectors:
+      app: api-invoices
+  stressors:
+    cpu:
+      workers: 2
+      load: 80
+      options: "--cpu 2 --cpu-load 80"

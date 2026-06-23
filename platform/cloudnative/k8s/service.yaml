@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloud-native-demo-svc
+  labels:
+    app: cloud-native-demo
+spec:
+  # ClusterIP (par défaut) : Le service n'est accessible que DE L'INTÉRIEUR du cluster K8s.
+  # C'est une architecture sécurisée : seul notre futur Ingress Controller sera exposé à l'extérieur,
+  # et il redirigera le trafic vers ce Service interne.
+  type: ClusterIP
+  selector:
+    # Le Service va cibler tous les Pods qui ont ce label
+    app: cloud-native-demo
+  ports:
+  - port: 80         # Le port exposé en interne sur le cluster (par les autres apps)
+    targetPort: 3000 # Le port réel de notre conteneur Node.js
+    protocol: TCP

@@ -1,0 +1,137 @@
+name: Terraform Multi-Cloud CI/CD
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'infrastructure/cloud/**'
+      - '.github/workflows/terraform-cloud.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'infrastructure/cloud/**'
+      - '.github/workflows/terraform-cloud.yml'
+
+env:
+  TF_IN_AUTOMATION: true
+  TF_CLI_ARGS: "-no-color"
+
+jobs:
+  lint:
+    name: Terraform Format & Validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cloud: [aws, azure, gcp]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform fmt
+        working-directory: infrastructure/cloud/${{ matrix.cloud }}
+        run: terraform fmt -check -diff
+
+      - name: Terraform init
+        working-directory: infrastructure/cloud/${{ matrix.cloud }}
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: infrastructure/cloud/${{ matrix.cloud }}
+        run: terraform validate
+
+  security:
+    name: Checkov Security Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infrastructure/cloud/
+          framework: terraform
+          soft_fail: true
+          output_format: cli
+
+  plan-aws:
+    name: Plan AWS
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    if: github.event_name == 'pull_request'
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform init
+        working-directory: infrastructure/cloud/aws
+        run: terraform init
+
+      - name: Terraform plan
+        working-directory: infrastructure/cloud/aws
+        run: terraform plan -var="environment=ci" -input=false
+
+  plan-azure:
+    name: Plan Azure
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    if: github.event_name == 'pull_request'
+    env:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform init
+        working-directory: infrastructure/cloud/azure
+        run: terraform init
+
+      - name: Terraform plan
+        working-directory: infrastructure/cloud/azure
+        run: terraform plan -var="environment=ci" -input=false
+
+  plan-gcp:
+    name: Plan GCP
+    runs-on: ubuntu-latest
+    needs: [lint, security]
+    if: github.event_name == 'pull_request'
+    env:
+      GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform init
+        working-directory: infrastructure/cloud/gcp
+        run: terraform init
+
+      - name: Terraform plan
+        working-directory: infrastructure/cloud/gcp
+        run: terraform plan -var="environment=ci" -var="gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" -input=false

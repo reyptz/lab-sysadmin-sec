@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Groupe 3 - Cloud Native & Conteneurisation</title>
+  <!-- Google Fonts: Space Grotesk & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@400;500;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Canvas pour l'arrière-plan d'étoiles et les trainées interactives -->
+  <canvas id="starfield"></canvas>
+
+  <!-- Orbes de lumière floues en arrière-plan pour le relief -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+
+  <!-- Conteneur Principal -->
+  <main class="container">
+    
+    <!-- En-tête -->
+    <header class="header animate-fade-in">
+      <div class="badge">
+        <span class="pulse-dot"></span>
+        <span class="badge-text">PROJET CLOUD NATIVE & CONTENEURISATION</span>
+      </div>
+      <h1 class="main-title">
+        Groupe 3 <br>
+        <span class="gradient-text">Meilleur Groupe Exposé</span>
+      </h1>
+      <p class="subtitle">
+        Une application moderne et conteneurisée démontrant l'orchestration et le load balancing à l'échelle.
+      </p>
+    </header>
+
+    <!-- Contenu Central : Tableau de Bord Glassmorphic -->
+    <section class="dashboard-grid">
+      
+      <!-- Carte Principale de l'Instance -->
+      <div class="card glass-card main-instance-card animate-slide-up" style="animation-delay: 0.1s;">
+        <div class="card-header">
+          <div class="card-icon">☸️</div>
+          <h2>Détails du Pod Actuel</h2>
+          <div class="status-indicator">
+            <span class="status-dot green"></span>
+            <span class="status-label">Actif</span>
+          </div>
+        </div>
+
+        <div class="instance-details">
+          <div class="info-group">
+            <label>Hostname / Conteneur ID</label>
+            <div class="hostname-wrapper">
+              <span id="hostname-value" class="highlight-code">Chargement...</span>
+              <button id="copy-btn" title="Copier le hostname" class="icon-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <div class="info-col">
+              <label>Plateforme</label>
+              <span id="platform-value" class="stat-value">-</span>
+            </div>
+            <div class="info-col">
+              <label>Version</label>
+              <span id="version-value" class="stat-value">-</span>
+            </div>
+          </div>
+
+          <div class="info-row">
+            <div class="info-col">
+              <label>Uptime du Conteneur</label>
+              <span id="uptime-value" class="stat-value">-</span>
+            </div>
+            <div class="info-col">
+              <label>Charge CPU (Load)</label>
+              <span id="load-value" class="stat-value">-</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button id="refresh-btn" class="primary-btn btn-glow">
+            <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Actualiser l'instance
+          </button>
+        </div>
+      </div>
+
+      <!-- Carte Console / Outils K8s (Éducatif) -->
+      <div class="card glass-card terminal-card animate-slide-up" style="animation-delay: 0.2s;">
+        <div class="card-header">
+          <div class="terminal-dots">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+          </div>
+          <span class="terminal-title">cloud-native-terminal</span>
+        </div>
+        
+        <div class="terminal-nav">
+          <button class="term-tab active" data-cmd="kubectl-pods">kubectl get pods</button>
+          <button class="term-tab" data-cmd="kubectl-svc">kubectl get svc</button>
+          <button class="term-tab" data-cmd="docker-ps">docker ps</button>
+        </div>
+
+        <div class="terminal-body">
+          <pre><code id="terminal-content"></code></pre>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- NOUVELLE SECTION: Support de Présentation de l'Exposé (Intégration du PDF) -->
+    <section class="slides-section animate-slide-up" style="animation-delay: 0.25s;">
+      <div class="glass-card slides-card">
+        <div class="card-header slides-header">
+          <div class="card-icon">📊</div>
+          <h2>Support de Présentation de l'Exposé</h2>
+          <a href="Cloud Native & Conteneurisation.pdf" download class="download-btn btn-glow">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Télécharger PDF original
+          </a>
+        </div>
+
+        <div class="slides-layout">
+          <!-- Sidebar Navigation des Slides -->
+          <nav class="slides-sidebar" aria-label="Navigation des diapositives">
+            <button class="slide-nav-btn active" data-slide="0">🏠 Accueil & Titre</button>
+            <button class="slide-nav-btn" data-slide="1">👥 Membres de l'Équipe</button>
+            <button class="slide-nav-btn" data-slide="2">💡 Cloud Native & Conteneurisation</button>
+            <button class="slide-nav-btn" data-slide="3">🐋 Docker (Etienne)</button>
+            <button class="slide-nav-btn" data-slide="4">☸️ Kubernetes (Yaya)</button>
+            <button class="slide-nav-btn" data-slide="5">🌐 Ingress Controller (Ahmed)</button>
+            <button class="slide-nav-btn" data-slide="6">⛵ Helm (Ibrahim)</button>
+            <button class="slide-nav-btn" data-slide="7">🚀 Cas Pratique & Synthèse</button>
+          </nav>
+
+          <!-- Zone d'affichage des slides -->
+          <div class="slide-viewer">
+            
+            <!-- Slide 0: Accueil -->
+            <div class="slide-content active" id="slide-0">
+              <div class="slide-hero">
+                <span class="slide-badge">PROJET D'EXPOSÉ - GROUPE 3</span>
+                <h2>Cloud Native & Conteneurisation</h2>
+                <p class="slide-lead">Virtualisation et Ingénierie des systèmes Cloud DevOps</p>
+                <div class="slide-footer-meta">
+                  <span>Enseignement Supérieur</span> • <span>Systèmes Cloud Devops</span>
+                </div>
+              </div>
+              <div class="slide-features">
+                <div class="feat-card">
+                  <span class="feat-icon">🐋</span>
+                  <h4>Docker</h4>
+                  <p>Conteneurisation légère, isolation et portabilité des dépendances.</p>
+                </div>
+                <div class="feat-card">
+                  <span class="feat-icon">☸️</span>
+                  <h4>Kubernetes</h4>
+                  <p>Orchestration intelligente, self-healing et scalabilité automatique.</p>
+                </div>
+                <div class="feat-card">
+                  <span class="feat-icon">🌐</span>
+                  <h4>Ingress Controller</h4>
+                  <p>Routage applicatif sécurisé et centralisé vers vos microservices.</p>
+                </div>
+                <div class="feat-card">
+                  <span class="feat-icon">⛵</span>
+                  <h4>Helm</h4>
+                  <p>Gestionnaire de packages Kubernetes pour simplifier les déploiements.</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 1: Membres de l'équipe -->
+            <div class="slide-content" id="slide-1">
+              <h3>Membres de l'Équipe</h3>
+              <p class="slide-desc">Les contributeurs du Groupe 3 ayant conçu et réalisé cet exposé :</p>
+              
+              <div class="team-grid">
+                <div class="team-card-wrapper">
+                  <div class="team-avatar">👤</div>
+                  <h4>Mady Dembélé</h4>
+                  <span class="team-role">Introduction & Concepts</span>
+                </div>
+                <div class="team-card-wrapper">
+                  <div class="team-avatar">👤</div>
+                  <h4>Etienne KAMATÉ</h4>
+                  <span class="team-role">Section Docker</span>
+                </div>
+                <div class="team-card-wrapper">
+                  <div class="team-avatar">👤</div>
+                  <h4>Yaya Bagayoko</h4>
+                  <span class="team-role">Section Kubernetes</span>
+                </div>
+                <div class="team-card-wrapper">
+                  <div class="team-avatar">👤</div>
+                  <h4>Ahmed Noumory Diakité</h4>
+                  <span class="team-role">Section Ingress Controller</span>
+                </div>
+                <div class="team-card-wrapper">
+                  <div class="team-avatar">👤</div>
+                  <h4>Ibrahim Touré</h4>
+                  <span class="team-role">Section Helm</span>
+                </div>
+                <div class="team-card-wrapper">
+                  <div class="team-avatar">👤</div>
+                  <h4>Rey Potozy</h4>
+                  <span class="team-role">Coordination & Déploiement</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 2: Concepts Introduction -->
+            <div class="slide-content" id="slide-2">
+              <div class="slide-section-header">
+                <span class="section-part">Partie 1</span>
+                <h3>Concepts Fondamentaux</h3>
+              </div>
+              
+              <div class="split-layout">
+                <div class="split-col">
+                  <h4 class="col-title">Qu'est-ce que l'architecture Cloud Native ?</h4>
+                  <ul class="styled-list">
+                    <li><strong>Automatisation & CI/CD :</strong> pipelines de livraison continue pour des déploiements fiables.</li>
+                    <li><strong>Microservices :</strong> découpage en services indépendants (frontend, catalogue, etc.).</li>
+                    <li><strong>Infrastructure as Code (IaC) :</strong> définition de l'infrastructure par le code pour éliminer l'erreur humaine.</li>
+                    <li><strong>Résilience :</strong> tolérance aux pannes, auto-scaling et haute disponibilité au cœur du design.</li>
+                  </ul>
+                </div>
+                <div class="split-col">
+                  <h4 class="col-title">Qu'est-ce que la Conteneurisation ?</h4>
+                  <div class="quote-box">
+                    <p>
+                      Une méthode consistant à encapsuler une application et ses dépendances (fichiers, librairies, configurations) dans une unité autonome appelée <strong>conteneur</strong>.
+                    </p>
+                    <span class="quote-highlight">Garantit un fonctionnement fluide et identique sur n'importe quelle infrastructure (local, cloud public, hybride).</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 3: Docker -->
+            <div class="slide-content" id="slide-3">
+              <div class="slide-section-header">
+                <span class="section-part">Partie 2 — Présenté par Etienne KAMATÉ</span>
+                <h3>Docker : Le Moteur de Conteneurs</h3>
+              </div>
+
+              <div class="tabbed-slide-container">
+                <div class="info-boxes-grid">
+                  <div class="info-box-styled">
+                    <h5>Pourquoi Docker ?</h5>
+                    <p><strong>Avant :</strong> "Ça marche sur ma machine", dépendances incompatibles, déploiements lourds et complexes.</p>
+                    <p><strong>Avec :</strong> Environnement standardisé, isolation des processus, portabilité universelle, rapidité de démarrage.</p>
+                  </div>
+                  <div class="info-box-styled">
+                    <h5>Architecture Docker</h5>
+                    <ul>
+                      <li><strong>Docker Client :</strong> CLI envoyant les instructions.</li>
+                      <li><strong>Docker Daemon :</strong> Gère conteneurs, images, réseaux.</li>
+                      <li><strong>Éléments clés :</strong> Images (templates immutables), Conteneurs (instances actives), Registries (stockage des images).</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div class="code-box-styled">
+                  <h5>Exemple de Dockerfile d'une application</h5>
+                  <pre class="code-snippet"><code>FROM node:20
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]</code></pre>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 4: Kubernetes -->
+            <div class="slide-content" id="slide-4">
+              <div class="slide-section-header">
+                <span class="section-part">Partie 3 — Présenté par Yaya Bagayoko</span>
+                <h3>Kubernetes : L'Orchestrateur</h3>
+              </div>
+
+              <div class="split-layout">
+                <div class="split-col">
+                  <h4 class="col-title">Pourquoi utiliser un orchestrateur ?</h4>
+                  <p class="col-intro">Docker seul présente des limites en production : gestion manuelle de serveurs multiples, tolérance aux pannes restreinte, scalabilité complexe.</p>
+                  
+                  <div class="grid-sub-cards">
+                    <div class="sub-card-mini">
+                      <h6>Auto-scaling</h6>
+                      <p>Ajuste automatiquement les pods selon la charge.</p>
+                    </div>
+                    <div class="sub-card-mini">
+                      <h6>Self-healing</h6>
+                      <p>Redémarre les conteneurs défaillants.</p>
+                    </div>
+                    <div class="sub-card-mini">
+                      <h6>Rolling Updates</h6>
+                      <p>Mises à jour sans interruption de service.</p>
+                    </div>
+                    <div class="sub-card-mini">
+                      <h6>Load Balancing</h6>
+                      <p>Répartit équitablement les requêtes (comme sur cette page !).</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="split-col">
+                  <h4 class="col-title">Architecture & Concepts</h4>
+                  <div class="arch-box">
+                    <h5>Control Plane (Brain)</h5>
+                    <p>API Server, Scheduler, Controller Manager, etcd.</p>
+                    
+                    <h5>Worker Nodes (Muscles)</h5>
+                    <p>Kubelet, Container Runtime, Pods.</p>
+                  </div>
+                  <div class="concept-chips">
+                    <span class="chip"><strong>Pod :</strong> Plus petite unité.</span>
+                    <span class="chip"><strong>Deployment :</strong> Cycle de vie.</span>
+                    <span class="chip"><strong>Service :</strong> Exposition (ClusterIP, NodePort, LoadBalancer).</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 5: Ingress Controller -->
+            <div class="slide-content" id="slide-5">
+              <div class="slide-section-header">
+                <span class="section-part">Partie 4 — Présenté par Ahmed Noumory Diakité</span>
+                <h3>Ingress Controller & Routage</h3>
+              </div>
+
+              <div class="split-layout">
+                <div class="split-col">
+                  <h4 class="col-title">Qu'est-ce qu'un Ingress ?</h4>
+                  <p>Une ressource Kubernetes gérant l'accès externe HTTP/HTTPS aux services internes du cluster.</p>
+                  
+                  <div class="comparison-container">
+                    <div class="comp-item">
+                      <span class="comp-title red-text">Sans Ingress :</span>
+                      <p>Plusieurs LoadBalancers externes requis (coûteux et complexe à administrer).</p>
+                    </div>
+                    <div class="comp-item">
+                      <span class="comp-title green-text">Avec Ingress :</span>
+                      <p>Un seul point d'entrée centralisé avec routage basé sur les chemins/hôtes (ex: api.nd.com).</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="split-col">
+                  <h4 class="col-title">Ingress Controller</h4>
+                  <p>L'implémentation active des règles définies dans les ressources Ingress. Exemples populaires :</p>
+                  <div class="controller-list">
+                    <div class="ctrl-tag">NGINX Ingress Controller</div>
+                    <div class="ctrl-tag">Traefik</div>
+                    <div class="ctrl-tag">Kong</div>
+                    <div class="ctrl-tag">HAProxy Ingress</div>
+                  </div>
+                  
+                  <div class="code-box-styled compact">
+                    <h5>YAML d'Ingress</h5>
+                    <pre class="code-snippet"><code>apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: demo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80</code></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 6: Helm -->
+            <div class="slide-content" id="slide-6">
+              <div class="slide-section-header">
+                <span class="section-part">Partie 5 — Présenté par Ibrahim Touré</span>
+                <h3>Helm : Le Gestionnaire de Packages</h3>
+              </div>
+
+              <div class="split-layout">
+                <div class="split-col">
+                  <h4 class="col-title">Le besoin d'industrialisation</h4>
+                  <p>Le déploiement manuel de manifests Kubernetes (deployment, service, ingress, configmap, secrets) devient vite répétitif, difficile à maintenir et complexe à versionner.</p>
+                  
+                  <div class="helm-value-card">
+                    <h5>La Solution Helm :</h5>
+                    <p>Helm permet de packager toutes les ressources dans des archives appelées <strong>Charts</strong>, utilisant des <strong>Templates</strong> paramétrables via un fichier centralisé <code>values.yaml</code>.</p>
+                  </div>
+                </div>
+
+                <div class="split-col">
+                  <h4 class="col-title">Structure & Commandes</h4>
+                  <div class="struct-box">
+                    <h5>Structure d'un Chart :</h5>
+                    <pre><code>mychart/
+├── Chart.yaml     # Métadonnées
+├── values.yaml    # Valeurs par défaut
+└── templates/     # Manifests Kubernetes</code></pre>
+                  </div>
+                  
+                  <h5>Commandes Essentielles :</h5>
+                  <div class="cmd-grid-list">
+                    <div class="cmd-item-styled"><code>helm install myapp ./mychart</code> <span class="cmd-desc">Installation</span></div>
+                    <div class="cmd-item-styled"><code>helm upgrade myapp ./mychart</code> <span class="cmd-desc">Mise à jour</span></div>
+                    <div class="cmd-item-styled"><code>helm rollback myapp 1</code> <span class="cmd-desc">Retour arrière</span></div>
+                    <div class="cmd-item-styled"><code>helm uninstall myapp</code> <span class="cmd-desc">Désinstallation</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slide 7: Cas Pratique & Conclusion -->
+            <div class="slide-content" id="slide-7">
+              <div class="slide-section-header">
+                <span class="section-part">Synthèse et Cas Pratique global</span>
+                <h3>Cycle de Déploiement & Conclusion</h3>
+              </div>
+
+              <div class="workflow-visual">
+                <h4>Pipeline DevOps Cloud Native</h4>
+                <div class="flow-steps">
+                  <div class="step-bubble">💻 Dev</div>
+                  <div class="step-arrow">➔</div>
+                  <div class="step-bubble">📦 Docker Build</div>
+                  <div class="step-arrow">➔</div>
+                  <div class="step-bubble">🌐 Registry</div>
+                  <div class="step-arrow">➔</div>
+                  <div class="step-bubble">⛵ Helm Deploy</div>
+                  <div class="step-arrow">➔</div>
+                  <div class="step-bubble">☸️ K8s Cluster</div>
+                  <div class="step-arrow">➔</div>
+                  <div class="step-bubble">🌐 Ingress</div>
+                  <div class="step-arrow">➔</div>
+                  <div class="step-bubble">👥 Client</div>
+                </div>
+              </div>
+
+              <div class="split-layout" style="margin-top: 15px;">
+                <div class="split-col">
+                  <h4 class="col-title">Synthèse de l'Exposé</h4>
+                  <p>L'écosystème moderne repose sur quatre briques fondamentales :</p>
+                  <ul class="conclusion-points">
+                    <li><strong>Docker :</strong> Création et exécution isolée.</li>
+                    <li><strong>Kubernetes :</strong> Orchestration globale et résilience.</li>
+                    <li><strong>NGINX Ingress :</strong> Routage applicatif sécurisé.</li>
+                    <li><strong>Helm :</strong> Simplification et packaging CI/CD.</li>
+                  </ul>
+                </div>
+                <div class="split-col text-center-col">
+                  <div class="thanks-box">
+                    <h3>MERCI POUR VOTRE ATTENTION !</h3>
+                    <p>N'hésitez pas à poser vos questions au <strong>Groupe 3</strong>.</p>
+                    <div class="emoji-spacer">🚀☸️🐋⛵</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Slide Controls du bas -->
+        <div class="slides-footer-controls">
+          <button id="prev-slide-btn" class="secondary-btn">&larr; Précédent</button>
+          <span id="slide-progress-indicator">Slide 1 / 8</span>
+          <button id="next-slide-btn" class="secondary-btn">Suivant &rarr;</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section Architecture Cloud Native Explicative -->
+    <section class="architecture-section animate-slide-up" style="animation-delay: 0.3s;">
+      <div class="glass-card compact-card">
+        <h3>🚀 Pourquoi le hostname change ?</h3>
+        <p>
+          En environnement <strong>Kubernetes</strong> ou derrière un <strong>Load Balancer Docker Compose</strong>, 
+          chaque rafraîchissement peut rediriger votre requête vers une réplique différente (Pod).
+          Le hostname affiché ci-dessus correspond à l'identifiant unique du conteneur ayant répondu. 
+          Essayez d'actualiser plusieurs fois pour observer la répartition de charge !
+        </p>
+      </div>
+    </section>
+
+    <!-- Pied de page -->
+    <footer class="footer animate-fade-in">
+      <div class="tech-stack">
+        <span class="tech-badge">Node.js</span>
+        <span class="tech-badge">Express</span>
+        <span class="tech-badge">Docker</span>
+        <span class="tech-badge">Kubernetes</span>
+        <span class="tech-badge">Ingress Controller</span>
+        <span class="tech-badge">Helm Charts</span>
+        <span class="tech-badge">Glassmorphism UI</span>
+      </div>
+      <p class="credits">Créé avec ❤️ par le <strong>Groupe 3</strong> - Exposé Cloud Native, 2026</p>
+    </footer>
+  </main>
+  
+  <script src="script.js"></script>
+</body>
+</html>

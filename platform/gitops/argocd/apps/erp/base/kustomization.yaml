@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+
+commonLabels:
+  app: erp-app
+  tier: backend
+
+images:
+  - name: erp-app
+    newName: ghcr.io/reyptz/lab-sysadmin-sec/erp-app
+    newTag: latest

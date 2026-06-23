@@ -1,0 +1,63 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: postgresql-managed
+  labels:
+    crossplane.io/xrd: xpostgresqls.platform.lab
+    provider: aws
+spec:
+  compositeTypeRef:
+    apiVersion: platform.lab/v1alpha1
+    kind: XPostgreSQL
+  resources:
+    - name: rds-instance
+      base:
+        apiVersion: rds.aws.upbound.io/v1beta1
+        kind: Instance
+        spec:
+          forProvider:
+            engine: postgres
+            engineVersion: "15"
+            instanceClass: db.t3.micro
+            allocatedStorage: 20
+            storageEncrypted: true
+            backupRetentionPeriod: 7
+            multiAz: false
+            publiclyAccessible: false
+            skipFinalSnapshot: true
+            dbName: exampledb
+            region: us-east-1
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - fromFieldPath: spec.parameters.size
+          toFieldPath: spec.forProvider.instanceClass
+          transforms:
+            - type: map
+              map:
+                small: db.t3.micro
+                medium: db.t3.small
+                large: db.t3.medium
+        - fromFieldPath: spec.parameters.storage
+          toFieldPath: spec.forProvider.allocatedStorage
+        - fromFieldPath: spec.parameters.database
+          toFieldPath: spec.forProvider.dbName
+        - fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.tags[0].value
+          transforms:
+            - type: string
+              string:
+                fmt: "managed-db-%s"
+    - name: db-subnet-group
+      base:
+        apiVersion: rds.aws.upbound.io/v1beta1
+        kind: SubnetGroup
+        spec:
+          forProvider:
+            description: "Subnet group for managed PostgreSQL"
+            subnetIds:
+              - subnet-12345678
+              - subnet-87654321
+            region: us-east-1
+          providerConfigRef:
+            name: aws-provider

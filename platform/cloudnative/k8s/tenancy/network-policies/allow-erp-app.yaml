@@ -1,0 +1,61 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-erp-app-ingress
+  namespace: erp-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: erp-app
+  policyTypes:
+    - Ingress
+  ingress:
+    # Autorise le trafic depuis l'Ingress Controller (NGINX/Istio)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-erp-app-egress
+  namespace: erp-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: erp-app
+  policyTypes:
+    - Egress
+  egress:
+    # Autorise DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # Autorise la base de données ERP (exemple : PostgreSQL dans le namespace erp-data)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app: erp-data
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Autorise les endpoints de l'API IA (exemple : service externe via Egress)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app: ai-api
+      ports:
+        - protocol: TCP
+          port: 443

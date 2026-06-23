@@ -1,0 +1,130 @@
+# GitLab CI/CD
+# Alternative au workflow GitHub Actions
+
+stages:
+  - lint
+  - test
+  - build
+  - security
+  - push
+  - deploy
+
+variables:
+  APP_DIR: platform/cloudnative/app
+  IMAGE_NAME: $CI_REGISTRY_IMAGE/app
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+
+default:
+  image: node:20-alpine
+
+# ---------------------------------------------------------------------------
+# Stage Lint
+# ---------------------------------------------------------------------------
+lint:
+  stage: lint
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - cd $APP_DIR
+    - npm ci
+    - npm run lint
+
+# ---------------------------------------------------------------------------
+# Stage Tests
+# ---------------------------------------------------------------------------
+unit_tests:
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - cd $APP_DIR
+    - npm ci
+    - npm test
+  artifacts:
+    reports:
+      junit: $APP_DIR/junit.xml
+    paths:
+      - $APP_DIR/coverage/
+    when: always
+
+# ---------------------------------------------------------------------------
+# Stage Build
+# ---------------------------------------------------------------------------
+build_image:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  needs:
+    - job: unit_tests
+      artifacts: false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - docker info
+  script:
+    - docker build -t $IMAGE_NAME:$CI_COMMIT_SHA -t $IMAGE_NAME:latest $APP_DIR
+    - docker save $IMAGE_NAME:$CI_COMMIT_SHA -o /tmp/app.tar
+  artifacts:
+    paths:
+      - /tmp/app.tar
+    expire_in: 1 hour
+
+# ---------------------------------------------------------------------------
+# Stage Security
+# ---------------------------------------------------------------------------
+trivy_scan:
+  stage: security
+  image: aquasec/trivy:latest
+  needs:
+    - build_image
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - docker load -i /tmp/app.tar
+    - trivy image --severity HIGH,CRITICAL --exit-code 1 $IMAGE_NAME:$CI_COMMIT_SHA
+  allow_failure: false
+
+# ---------------------------------------------------------------------------
+# Stage Push
+# ---------------------------------------------------------------------------
+push_image:
+  stage: push
+  image: docker:latest
+  services:
+    - docker:dind
+  needs:
+    - trivy_scan
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker load -i /tmp/app.tar
+    - docker tag $IMAGE_NAME:$CI_COMMIT_SHA $IMAGE_NAME:main-$CI_COMMIT_SHA
+    - docker tag $IMAGE_NAME:$CI_COMMIT_SHA $IMAGE_NAME:latest
+    - docker push $IMAGE_NAME:main-$CI_COMMIT_SHA
+    - docker push $IMAGE_NAME:latest
+
+# ---------------------------------------------------------------------------
+# Stage Deploy (GitOps — mise à jour des manifests)
+# ---------------------------------------------------------------------------
+update_gitops:
+  stage: deploy
+  needs:
+    - push_image
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - apk add --no-cache git sed
+    - git config user.email "gitlab-ci@example.com"
+    - git config user.name "GitLab CI"
+    - sed -i "s|image: .*app:.*|image: $IMAGE_NAME:main-$CI_COMMIT_SHA|" platform/gitops/argocd/apps/app/base/deployment.yaml
+    - git add platform/gitops/argocd/apps/app/base/deployment.yaml
+    - 'git commit -m "chore(gitops): deploy app main-$CI_COMMIT_SHA" || true'
+    - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main

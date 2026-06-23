@@ -1,0 +1,147 @@
+---
+- name: RHCSA — Boot Targets, Root Password Reset, journalctl
+  hosts: linux_servers
+  become: yes
+  vars:
+    default_target: "multi-user.target"
+
+  tasks:
+    # --- systemd targets (RHCSA objective) ---
+    - name: Set default systemd target
+      ansible.builtin.command: systemctl set-default {{ default_target }}
+      register: target_set
+      changed_when: "'Created symlink' in target_set.stderr"
+
+    - name: Show current default target
+      ansible.builtin.command: systemctl get-default
+      register: default_target_out
+      changed_when: false
+
+    - name: List all targets
+      ansible.builtin.command: systemctl list-units --type=target --all --no-pager
+      register: targets_list
+      changed_when: false
+
+    - name: Display target info
+      debug:
+        msg:
+          - "Default: {{ default_target_out.stdout }}"
+          - "Available targets: {{ targets_list.stdout_lines | select('search', 'target') | list | length }}"
+
+    - name: Switch to graphical target (demo — then switch back)
+      ansible.builtin.command: systemctl isolate graphical.target
+      when: false
+
+    # --- Root password reset (RHCSA exam procedure) ---
+    - name: Document GRUB root password reset procedure
+      debug:
+        msg: |
+          === RHCSA Root Password Reset — Actual Exam Procedure ===
+          1. Reboot the system
+          2. At GRUB2 menu, press 'e' to edit the default entry
+          3. Find the line starting with 'linux' (or 'linux16')
+          4. Append: rd.break enforcing=0
+          5. Press Ctrl+x to boot into emergency mode
+          6. In the emergency shell:
+             switch_root:/# mount -o remount,rw /sysroot
+             switch_root:/# chroot /sysroot
+             sh-5.1# passwd root
+             sh-5.1# touch /.autorelabel
+             sh-5.1# exit
+             switch_root:/# exit
+          7. System reboots, SELinux relabels, new password is active
+          =========================================================
+
+    - name: Ensure root shell is bash
+      user:
+        name: root
+        shell: /bin/bash
+        state: present
+
+    - name: Verify root account is not locked
+      ansible.builtin.command: passwd -S root
+      register: root_status
+      changed_when: false
+
+    - name: Display root account status
+      debug:
+        msg: "Root status: {{ root_status.stdout }}"
+
+    # --- journalctl (RHCSA objective) ---
+    - name: Show journal disk usage
+      ansible.builtin.command: journalctl --disk-usage
+      register: journal_usage
+      changed_when: false
+
+    - name: Show last 10 critical log entries
+      ansible.builtin.command: journalctl -p crit --no-pager -n 10
+      register: journal_crit
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Show logs since last boot
+      ansible.builtin.command: journalctl -b 0 --no-pager -n 5
+      register: journal_boot
+      changed_when: false
+
+    - name: Show logs for a specific unit
+      ansible.builtin.command: journalctl -u sshd --no-pager -n 5
+      register: journal_sshd
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display journal info
+      debug:
+        msg:
+          - "Disk usage: {{ journal_usage.stdout }}"
+          - "Critical: {{ journal_crit.stdout | default('None') }}"
+          - "SSH logs: {{ journal_sshd.stdout | default('None') }}"
+
+    # --- Persistent journal storage ---
+    - name: Ensure /var/log/journal exists for persistent storage
+      file:
+        path: /var/log/journal
+        state: directory
+        mode: '2755'
+        owner: root
+        group: systemd-journal
+
+    - name: Configure persistent journal with size limits
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: "^#?Storage=", line: "Storage=persistent" }
+        - { regexp: "^#?SystemMaxUse=", line: "SystemMaxUse=500M" }
+        - { regexp: "^#?RuntimeMaxUse=", line: "RuntimeMaxUse=100M" }
+      notify: restart journald
+
+    # --- GRUB configuration (RHCSA objective) ---
+    - name: Ensure GRUB timeout is set
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: "^GRUB_TIMEOUT="
+        line: "GRUB_TIMEOUT=5"
+        state: present
+      notify: rebuild grub
+
+    - name: Verify GRUB config exists
+      ansible.builtin.stat:
+        path: /boot/grub2/grub.cfg
+      register: grub_cfg
+
+    - name: Display GRUB status
+      debug:
+        msg: "GRUB config present: {{ grub_cfg.stat.exists | default(false) }}"
+
+  handlers:
+    - name: restart journald
+      service:
+        name: systemd-journald
+        state: restarted
+
+    - name: rebuild grub
+      ansible.builtin.command: grub2-mkconfig -o /boot/grub2/grub.cfg
+      when: grub_cfg.stat.exists | default(false)

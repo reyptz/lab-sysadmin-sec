@@ -1,0 +1,156 @@
+---
+- name: RHCSA — LVM, Partitioning, Mount Points, fstab
+  hosts: linux_servers
+  become: yes
+  vars:
+    vg_name: "vg_data"
+    lv_name: "lv_app"
+    lv_logs_name: "lv_logs"
+    mount_point: "/mnt/appdata"
+    mount_logs: "/mnt/logs"
+    data_disk: "/dev/sdb"
+    extend_disk: "/dev/sdc"
+
+  tasks:
+    # --- Partition + PV + VG + LV ---
+    - name: Ensure required packages are installed
+      package:
+        name:
+          - lvm2
+          - parted
+          - xfsdump
+        state: present
+
+    - name: Create a single primary partition on the data disk
+      parted:
+        device: "{{ data_disk }}"
+        number: 1
+        flags: [lvm]
+        state: present
+        part_start: "0%"
+        part_end: "100%"
+
+    - name: Create volume group
+      community.general.lvg:
+        vg: "{{ vg_name }}"
+        pvs: "{{ data_disk }}1"
+        state: present
+
+    - name: Create logical volume for app (50% of VG)
+      community.general.lvol:
+        vg: "{{ vg_name }}"
+        lv: "{{ lv_name }}"
+        size: "50%VG"
+        state: present
+
+    - name: Create logical volume for logs (remaining space)
+      community.general.lvol:
+        vg: "{{ vg_name }}"
+        lv: "{{ lv_logs_name }}"
+        size: "100%FREE"
+        state: present
+
+    - name: Create ext4 filesystem on lv_app
+      filesystem:
+        fstype: ext4
+        dev: "/dev/{{ vg_name }}/{{ lv_name }}"
+
+    - name: Create xfs filesystem on lv_logs
+      filesystem:
+        fstype: xfs
+        dev: "/dev/{{ vg_name }}/{{ lv_logs_name }}"
+
+    # --- Mount + fstab ---
+    - name: Ensure mount points exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ mount_point }}"
+        - "{{ mount_logs }}"
+
+    - name: Mount lv_app and add to fstab
+      mount:
+        path: "{{ mount_point }}"
+        src: "/dev/{{ vg_name }}/{{ lv_name }}"
+        fstype: ext4
+        opts: defaults
+        state: mounted
+
+    - name: Mount lv_logs and add to fstab
+      mount:
+        path: "{{ mount_logs }}"
+        src: "/dev/{{ vg_name }}/{{ lv_logs_name }}"
+        fstype: xfs
+        opts: defaults,noatime
+        state: mounted
+
+    - name: Verify fstab entries
+      ansible.builtin.command: grep -c "{{ vg_name }}" /etc/fstab
+      register: fstab_count
+      changed_when: false
+      failed_when: fstab_count.stdout | int < 2
+
+    # --- LVM Extend (RHCSA objective) ---
+    - name: Extend VG with additional disk (if available)
+      community.general.lvg:
+        vg: "{{ vg_name }}"
+        pvs: "{{ data_disk }}1,{{ extend_disk }}"
+        state: present
+      when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
+
+    - name: Extend lv_app by 500M
+      community.general.lvol:
+        vg: "{{ vg_name }}"
+        lv: "{{ lv_name }}"
+        size: "+500M"
+        resizefs: yes
+        state: present
+      when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
+
+    # --- LVM Snapshot (RHCSA objective) ---
+    - name: Create LVM snapshot of lv_app
+      ansible.builtin.command: >
+        lvcreate --snapshot --name {{ lv_name }}_snap
+        --size 200M /dev/{{ vg_name }}/{{ lv_name }}
+      args:
+        creates: "/dev/{{ vg_name }}/{{ lv_name }}_snap"
+
+    - name: Show LVM snapshot status
+      ansible.builtin.command: lvs --noheadings -o lv_name,lv_size,snap_percent
+      register: lvs_output
+      changed_when: false
+
+    - name: Display LVM layout
+      debug:
+        msg: "{{ lvs_output.stdout }}"
+
+    # --- Swap via LVM (RHCSA objective) ---
+    - name: Create swap LV (256M)
+      community.general.lvol:
+        vg: "{{ vg_name }}"
+        lv: "lv_swap"
+        size: "256M"
+        state: present
+      when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
+
+    - name: Format swap
+      ansible.builtin.command: mkswap /dev/{{ vg_name }}/lv_swap
+      args:
+        creates: "/dev/{{ vg_name }}/lv_swap"
+      when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
+
+    - name: Activate swap
+      ansible.builtin.command: swapon /dev/{{ vg_name }}/lv_swap
+      when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
+      ignore_errors: yes
+
+    - name: Add swap to fstab
+      mount:
+        path: none
+        src: "/dev/{{ vg_name }}/lv_swap"
+        fstype: swap
+        opts: sw
+        state: present
+      when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined

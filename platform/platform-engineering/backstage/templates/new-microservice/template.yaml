@@ -1,0 +1,76 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: new-microservice
+  title: New Microservice
+  description: "Crée un microservice avec CI/CD, Helm, dashboards et DB managée"
+  tags:
+    - microservice
+    - kubernetes
+    - helm
+spec:
+  owner: platform-team
+  type: service
+  parameters:
+    - title: Informations du service
+      required:
+        - name
+        - owner
+        - description
+      properties:
+        name:
+          title: Nom du service
+          type: string
+          pattern: "^[a-z0-9-]+$"
+        owner:
+          title: Équipe propriétaire
+          type: string
+          ui:field: OwnerPicker
+        description:
+          title: Description
+          type: string
+        database:
+          title: Provisionner une base PostgreSQL
+          type: boolean
+          default: true
+        expose:
+          title: Exposer via ingress
+          type: boolean
+          default: true
+  steps:
+    - id: fetch-base
+      name: Fetch Base
+      action: fetch:template
+      input:
+        url: ./skeleton
+        targetPath: ./
+        values:
+          name: ${{ parameters.name }}
+          owner: ${{ parameters.owner }}
+          description: ${{ parameters.description }}
+          database: ${{ parameters.database }}
+          expose: ${{ parameters.expose }}
+
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        allowedHosts: ["github.com"]
+        description: ${{ parameters.description }}
+        repoUrl: github.com?owner=myorg&repo=${{ parameters.name }}
+        defaultBranch: main
+
+    - id: register
+      name: Register Component
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: "/catalog-info.yaml"
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}

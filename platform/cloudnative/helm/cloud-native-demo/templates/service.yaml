@@ -1,0 +1,18 @@
+# apiVersion v1 est la version historique mais toujours d'actualité pour l'objet Service.
+apiVersion: v1
+kind: Service
+metadata:
+  # Nommage dynamique basé sur la Release Helm.
+  name: {{ .Release.Name }}-{{ .Chart.Name }}-svc
+  labels:
+    app: {{ .Chart.Name }}
+spec:
+  # Le type de Service (ClusterIP par défaut) qui rend le Service accessible uniquement à l'intérieur du cluster.
+  type: {{ .Values.service.type }}
+  selector:
+    # Le Service va distribuer le trafic vers tous les Pods qui portent ce label exact.
+    app: {{ .Chart.Name }}
+  ports:
+  - port: {{ .Values.service.port }}       # Le port exposé par le Service au sein du cluster (ex: 80).
+    targetPort: 3000                      # Le port cible réel de notre conteneur Node.js (défini dans l'app).
+    protocol: TCP                         # Protocole de transport réseau.

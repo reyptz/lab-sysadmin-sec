@@ -1,0 +1,69 @@
+{
+  "dashboard": {
+    "title": "SRE - API Facturation /invoices",
+    "tags": ["sre", "api", "billing"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "title": "Availability (30d)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(app_http_requests_total{route=\"/invoices\",status!~\"5..\"}[30d])) / sum(rate(app_http_requests_total{route=\"/invoices\"}[30d]))",
+            "legendFormat": "availability"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 0.998},
+                {"color": "green", "value": 0.999}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}
+      },
+      {
+        "title": "Error Budget Burn (30d)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "1 - (sum(rate(app_http_requests_total{route=\"/invoices\",status!~\"5..\"}[30d])) / sum(rate(app_http_requests_total{route=\"/invoices\"}[30d])))",
+            "legendFormat": "error budget consumed"
+          },
+          {
+            "expr": "0.001",
+            "legendFormat": "budget limit"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 16, "x": 8, "y": 0}
+      },
+      {
+        "title": "p95 Latency",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(app_http_request_duration_seconds_bucket{route=\"/invoices\"}[5m])) by (le))",
+            "legendFormat": "p95 latency"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "title": "Request Rate & Errors",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(app_http_requests_total{route=\"/invoices\"}[5m])) by (status)",
+            "legendFormat": "{{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      }
+    ]
+  }
+}

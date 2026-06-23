@@ -1,0 +1,106 @@
+groups:
+  - name: api_invoices_sre
+    interval: 30s
+    rules:
+      - record: sli:api_invoices_availability:ratio_rate30d
+        expr: |
+          sum(rate(app_http_requests_total{route="/invoices",status!~"5.."}[30d]))
+          /
+          sum(rate(app_http_requests_total{route="/invoices"}[30d]))
+
+      - record: sli:api_invoices_latency_p95:ratio_rate30d
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(app_http_request_duration_seconds_bucket{route="/invoices"}[5m])) by (le)
+          )
+
+      - record: error_budget:api_invoices_availability:burn_rate_2h
+        expr: |
+          (
+            1 - sli:api_invoices_availability:ratio_rate2h
+          ) /
+          (
+            1 - 0.999
+          )
+
+      - record: error_budget:api_invoices_availability:burn_rate_6h
+        expr: |
+          (
+            1 - sli:api_invoices_availability:ratio_rate6h
+          ) /
+          (
+            1 - 0.999
+          )
+
+      - alert: APIInvoicesFastBurn
+        expr: error_budget:api_invoices_availability:burn_rate_2h > 14.4
+        for: 5m
+        labels:
+          severity: critical
+          team: billing
+          service: api-invoices
+        annotations:
+          summary: "API /invoices error budget is burning fast (2h burn rate > 14.4x)"
+          description: "The 2-hour burn rate indicates the error budget will be exhausted within 2 hours if the current failure rate continues."
+          runbook_url: "https://wiki.internal/runbooks/api-invoices"
+
+      - alert: APIInvoicesSlowBurn
+        expr: error_budget:api_invoices_availability:burn_rate_6h > 2
+        for: 15m
+        labels:
+          severity: warning
+          team: billing
+          service: api-invoices
+        annotations:
+          summary: "API /invoices error budget is burning slowly (6h burn rate > 2x)"
+          description: "The 6-hour burn rate indicates the error budget may be exhausted within days."
+          runbook_url: "https://wiki.internal/runbooks/api-invoices"
+
+      - alert: APIInvoicesLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(app_http_request_duration_seconds_bucket{route="/invoices"}[5m])) by (le)
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          team: billing
+        annotations:
+          summary: "API /invoices p95 latency > 300ms"
+          description: "95% of requests on /invoices are slower than 300ms."
+
+      - alert: APIInvoicesErrorRateHigh
+        expr: |
+          sum(rate(app_http_requests_total{route="/invoices",status=~"5.."}[5m]))
+          /
+          sum(rate(app_http_requests_total{route="/invoices"}[5m])) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          team: billing
+        annotations:
+          summary: "API /invoices error rate > 1%"
+          description: "More than 1% of requests on /invoices return a 5xx status."
+
+  - name: api_invoices_resource
+    rules:
+      - alert: APIInvoicesCPUHigh
+        expr: |
+          avg(rate(container_cpu_usage_seconds_total{pod=~"api-invoices-.*"}[5m])) by (pod)
+          > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API invoices pod CPU > 80%"
+
+      - alert: APIInvoicesMemoryHigh
+        expr: |
+          container_memory_working_set_bytes{pod=~"api-invoices-.*"}
+          /
+          container_spec_memory_limit_bytes{pod=~"api-invoices-.*"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API invoices pod memory > 85%"

@@ -1,0 +1,22 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-labels
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-required-labels
+      match:
+        resources:
+          kinds:
+            - Pod
+      validate:
+        message: "Pod must have app, team, owner, and cost-center labels"
+        pattern:
+          metadata:
+            labels:
+              app: "?*"
+              team: "?*"
+              owner: "?*"
+              cost-center: "?*"

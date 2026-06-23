@@ -1,0 +1,16 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: api-invoices-pod-kill
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: one
+  duration: "30s"
+  selector:
+    namespaces:
+      - billing
+    labelSelectors:
+      app: api-invoices
+  scheduler:
+    cron: "@every 30m"

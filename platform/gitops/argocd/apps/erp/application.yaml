@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: erp-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app: erp
+    env: prod
+spec:
+  project: erp
+  source:
+    repoURL: https://github.com/reyptz/lab-sysadmin-sec.git
+    targetRevision: main
+    path: platform/gitops/argocd/apps/erp/overlays/prod
+    kustomize:
+      namePrefix: prod-
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: erp-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
