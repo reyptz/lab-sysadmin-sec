@@ -1,0 +1,79 @@
+---
+- name: Hardening OS RHEL
+  hosts: rhel_servers
+  become: yes
+  tasks:
+    - name: Mise a jour du cache dnf
+      dnf:
+        update_cache: yes
+
+    - name: Installation des paquets de securite
+      dnf:
+        name:
+          - firewalld
+          - fail2ban
+          - dnf-automatic
+          - auditd
+          - chrony
+        state: present
+
+    - name: Demarrer et activer firewalld
+      service:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Activer le service SSH dans firewalld
+      ansible.posix.firewalld:
+        service: ssh
+        permanent: yes
+        state: enabled
+        immediate: yes
+        zone: public
+
+    - name: Configuration SSH securisee
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+        - { regexp: '^X11Forwarding', line: 'X11Forwarding no' }
+        - { regexp: '^MaxAuthTries', line: 'MaxAuthTries 3' }
+        - { regexp: '^ClientAliveInterval', line: 'ClientAliveInterval 300' }
+        - { regexp: '^ClientAliveCountMax', line: 'ClientAliveCountMax 0' }
+      notify: restart sshd
+
+    - name: Configuration fail2ban SSH
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [sshd]
+          enabled = true
+          maxretry = 5
+          bantime = 3600
+      notify: restart fail2ban
+
+    - name: Demarrer et activer les services
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - fail2ban
+        - chronyd
+        - auditd
+        - dnf-automatic.timer
+
+  handlers:
+    - name: restart sshd
+      service:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted

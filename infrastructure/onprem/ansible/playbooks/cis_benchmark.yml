@@ -1,6 +1,6 @@
 ---
 - name: CIS Benchmark Linux (Level 1) - Audit & Remediate
-  hosts: linux_servers
+  hosts: rhel_servers
   tasks:
     - name: CIS 1.1.1.1 Ensure mounting of cramfs is disabled
       lineinfile:

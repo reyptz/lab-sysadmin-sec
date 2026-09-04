@@ -1,0 +1,18 @@
+all:
+  children:
+    rhel_servers:
+      hosts:
+        rhel-control:
+          ansible_host: "{{ lookup('env', 'RHEL_CONTROL_HOST') }}"
+          ansible_user: "{{ lookup('env', 'RHEL_ADMIN_USER') }}"
+        rhel-managed:
+          ansible_host: "{{ lookup('env', 'RHEL_MANAGED_HOST') }}"
+          ansible_user: "{{ lookup('env', 'RHEL_ADMIN_USER') }}"
+      vars:
+        ansible_become: true
+        ansible_become_method: sudo
+        ansible_ssh_private_key_file: "{{ lookup('env', 'ANSIBLE_PRIVATE_KEY_FILE') }}"
+
+    bastion:
+      hosts:
+        rhel-control:

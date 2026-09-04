@@ -11,10 +11,10 @@ Garde-fous automatisés pour Kubernetes et le cycle de livraison.
 
 ## Fichiers
 
-- `gatekeeper/` — Policies OPA Gatekeeper.
-- `kyverno/` — Policies Kyverno.
-- `trivy/` — Config Trivy pour CI/CD.
-- `checkov/` — Config Checkov.
+- `kubernetes/gatekeeper/` — Policies OPA Gatekeeper.
+- `kubernetes/kyverno/` — Policies Kyverno.
+- `scan/trivy/` — Config Trivy pour CI/CD.
+- `iac/checkov/` — Config Checkov.
 
 ## Cas pratique
 

@@ -15,9 +15,9 @@ Exemple concret de SLO / SLI / Error Budget / Alerting pour l'API Facturation (`
 
 ## Fichiers
 
-- `slo-definition.yml` — Définition des SLO/SLI.
-- `prometheus-rules.yml` — Règles Prometheus (burn rate, latence, erreurs).
-- `grafana-dashboard.json` — Dashboard SRE pour API Facturation.
+- `rules/slo-definition.yml` — Définition des SLO/SLI.
+- `rules/prometheus-rules.yml` — Règles Prometheus (burn rate, latence, erreurs).
+- `dashboards/grafana-dashboard.json` — Dashboard SRE pour API Facturation.
 - `error-budget-policy.md` — Politique de gestion du budget d'erreur.
 - `postmortem-template.md` — Template de postmortem.
 
@@ -25,8 +25,8 @@ Exemple concret de SLO / SLI / Error Budget / Alerting pour l'API Facturation (`
 
 ```bash
 # Vérifier les règles Prometheus
-promtool check rules platform/sre/prometheus-rules.yml
+promtool check rules platform/sre/rules/prometheus-rules.yml
 
 # Appliquer le dashboard
-kubectl create configmap grafana-dashboard-invoices --from-file=platform/sre/grafana-dashboard.json
+kubectl create configmap grafana-dashboard-invoices --from-file=platform/sre/dashboards/grafana-dashboard.json
 ```

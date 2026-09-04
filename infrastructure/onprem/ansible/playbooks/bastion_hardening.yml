@@ -1,9 +1,9 @@
 ---
 - name: Hardening Bastion SSH
-  hosts: debian-server
+  hosts: bastion
   become: yes
   tasks:
-    - name: SSH config sécurisée
+    - name: Configuration SSH securisee
       lineinfile:
         path: /etc/ssh/sshd_config
         regexp: "{{ item.regexp }}"
@@ -16,15 +16,15 @@
         - { regexp: '^MaxAuthTries', line: 'MaxAuthTries 3' }
         - { regexp: '^ClientAliveInterval', line: 'ClientAliveInterval 300' }
         - { regexp: '^ClientAliveCountMax', line: 'ClientAliveCountMax 0' }
-      notify: restart ssh
+      notify: restart sshd
 
-    - name: Clés SSH uniquement + Fail2Ban SSH
-      apt:
+    - name: Installation Fail2Ban
+      dnf:
         name: fail2ban
         state: present
 
   handlers:
-    - name: restart ssh
+    - name: restart sshd
       service:
-        name: ssh
+        name: sshd
         state: restarted

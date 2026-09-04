@@ -6,7 +6,7 @@ Policies Kubernetes plus simples et YAML-friendly.
 
 ```bash
 kubectl apply -f https://github.com/kyverno/kyverno/releases/download/v1.11.0/install.yaml
-kubectl apply -f platform/devsecops/policies/kyverno/
+kubectl apply -f platform/devsecops/policies/kubernetes/kyverno/
 ```
 
 ## Policies

@@ -1,6 +1,6 @@
 ---
 - name: RHCSA — LVM, Partitioning, Mount Points, fstab
-  hosts: linux_servers
+  hosts: rhel_servers
   become: yes
   vars:
     vg_name: "vg_data"

@@ -1,42 +1,24 @@
 ---
 # Playbook principal — Lab SysAdmin / SecOps / RHCSA
-# Usage: ansible-playbook -i inventory.yml site.yml
+# Usage: ansible-playbook -i inventory/inventory.yml site.yml
 
 # Phase 1 — OS Hardening
-- import_playbook: hardening.yml
-- import_playbook: selinux.yml
-- import_playbook: cis_benchmark.yml
-- import_playbook: bastion_hardening.yml
+- import_playbook: playbooks/hardening.yml
+- import_playbook: playbooks/selinux.yml
+- import_playbook: playbooks/cis_benchmark.yml
+- import_playbook: playbooks/bastion_hardening.yml
 
 # Phase 2 — Storage & Filesystems (RHCSA)
-- import_playbook: lvm_storage.yml
+- import_playbook: playbooks/lvm_storage.yml
 
 # Phase 3 — Networking & Firewall (RHCSA)
-- import_playbook: firewalld_network.yml
+- import_playbook: playbooks/firewalld_network.yml
 
-# Phase 4 — Core Services
-- import_playbook: ntp.yml
-- import_playbook: bind9.yml
-- import_playbook: samba_debian.yml
-- import_playbook: rsyslog_server.yml
-- import_playbook: nginx_reverse.yml
+# Phase 4 — Containers & Platforms (RHCSA)
+- import_playbook: playbooks/podman_containers.yml
 
-# Phase 5 — Monitoring & SIEM
-- import_playbook: elk.yml
-- import_playbook: prometheus.yml
-- import_playbook: monitoring.yml
-- import_playbook: wazuh_agents.yml
+# Phase 5 — Scheduling & Permissions (RHCSA)
+- import_playbook: playbooks/cron_acls.yml
 
-# Phase 6 — Containers & Platforms
-- import_playbook: docker_ubuntu.yml
-- import_playbook: podman_containers.yml
-
-# Phase 7 — Firewall Appliances
-- import_playbook: setup_firewalls.yml
-- import_playbook: fail2ban_opnsense.yml
-
-# Phase 8 — Scheduling & Permissions (RHCSA)
-- import_playbook: cron_acls.yml
-
-# Phase 9 — Boot & Recovery (RHCSA)
-- import_playbook: boot_recovery.yml
+# Phase 6 — Boot & Recovery (RHCSA)
+- import_playbook: playbooks/boot_recovery.yml

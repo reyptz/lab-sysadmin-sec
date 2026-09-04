@@ -49,8 +49,8 @@ id_ed25519
 *.key
 *.p12
 *.pfx
-# NOTE : remplacer cloud/azure/id_rsa.pub par votre vraie cle publique
-# avant de commiter si vous souhaitez la versionner.
+# NOTE : les cles publiques sont fournies via variables d'environnement
+# ou secrets managers ; ne jamais versionner de materiel cryptographique.
 
 # ---------------------------------------------------------------
 # Cloud & Containers
@@ -96,3 +96,9 @@ backstage-app/
 *.bak
 *.tar.gz
 *.zip
+
+# ---------------------------------------------------------------
+# Quarantaine de refonte (hors périmètre)
+# ---------------------------------------------------------------
+delete/
+

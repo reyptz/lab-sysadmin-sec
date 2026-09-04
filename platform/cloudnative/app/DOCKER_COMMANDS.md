@@ -69,10 +69,10 @@ docker build -t cloudnative:latest .
 
 ```bash
 # Appliquer le déploiement
-kubectl apply -f ./k8s/deployment.yaml
+kubectl apply -f ./k8s/app/deployment.yaml
 
 # Appliquer le service
-kubectl apply -f ./k8s/service.yaml
+kubectl apply -f ./k8s/app/service.yaml
 ```
 
 ### 3. Vérifier le déploiement
@@ -112,8 +112,8 @@ kubectl logs -f <POD_NAME>
 
 ```bash
 # Supprimer le déploiement et le service
-kubectl delete -f ./k8s/deployment.yaml
-kubectl delete -f ./k8s/service.yaml
+kubectl delete -f ./k8s/app/deployment.yaml
+kubectl delete -f ./k8s/app/service.yaml
 ```
 
 ---

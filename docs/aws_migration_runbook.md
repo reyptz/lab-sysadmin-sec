@@ -37,8 +37,9 @@ Ce runbook documente la stratégie de migration vers AWS pour le lab `lab-sysadm
 
 ```bash
 # Terraform
-cd infrastructure/cloud
-terraform apply -var="enable_dms=true" -var="db_password=ChangeMe123!"
+cd infrastructure/aws
+export TF_VAR_db_password="$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)"
+terraform apply -var="enable_dms=true" -var="db_password=$TF_VAR_db_password"
 ```
 
 Points de vigilance :

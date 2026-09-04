@@ -1,16 +1,16 @@
 # Gestion des Secrets
 
-Décloupage complet des secrets (clés API IA, credentials BDD) hors du code source.
+Décloupage complet des secrets (credentials BDD, tokens) hors du code source.
 
 ## Options
 
-1. **External Secrets Operator (ESO)** : synchronise les secrets depuis un vault cloud (AWS Secrets Manager, Azure Key Vault, GCP Secret Manager) vers des Kubernetes Secrets.
+1. **External Secrets Operator (ESO)** : synchronise les secrets depuis AWS Secrets Manager vers des Kubernetes Secrets.
 2. **HashiCorp Vault + Vault Agent Injector** : injecte les secrets directement dans les pods sans jamais les stocker en tant que Secret Kubernetes.
 
-## Recommandation fintech
+## Recommandation
 
-- **En production** : utiliser Vault avec injection dynamique pour les credentials BDD et les clés API.
-- **En développement** : ESO + AWS Secrets Manager/Azure Key Vault pour simplifier le workflow.
+- **En production** : utiliser Vault avec injection dynamique pour les credentials BDD et les tokens API.
+- **En développement** : ESO + AWS Secrets Manager pour simplifier le workflow.
 
 ## Exemples
 

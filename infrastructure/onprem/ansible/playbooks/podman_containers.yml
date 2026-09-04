@@ -1,6 +1,6 @@
 ---
 - name: RHCSA — Podman Containers (rootless + systemd + volumes)
-  hosts: linux_servers
+  hosts: rhel_servers
   become: yes
   vars:
     container_user: "teti"

@@ -1,6 +1,6 @@
 ---
 - name: RHCSA — firewalld zones, rich rules + nmcli networking
-  hosts: linux_servers
+  hosts: rhel_servers
   become: yes
   vars:
     interface_name: "eth0"

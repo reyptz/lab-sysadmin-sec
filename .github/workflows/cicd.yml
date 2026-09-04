@@ -197,13 +197,13 @@ jobs:
       - name: Update GitOps image tag
         run: |
           sed -i "s|image: .*app:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-${{ github.sha }}|" \
-            platform/gitops/argocd/apps/app/base/deployment.yaml
+            platform/gitops/argocd/apps/erp/base/deployment.yaml
 
       - name: Commit and push GitOps update
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add platform/gitops/argocd/apps/app/base/deployment.yaml
+          git add platform/gitops/argocd/apps/erp/base/deployment.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else

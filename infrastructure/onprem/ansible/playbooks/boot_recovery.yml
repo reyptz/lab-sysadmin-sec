@@ -1,6 +1,6 @@
 ---
 - name: RHCSA — Boot Targets, Root Password Reset, journalctl
-  hosts: linux_servers
+  hosts: rhel_servers
   become: yes
   vars:
     default_target: "multi-user.target"

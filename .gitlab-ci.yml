@@ -124,7 +124,7 @@ update_gitops:
     - apk add --no-cache git sed
     - git config user.email "gitlab-ci@example.com"
     - git config user.name "GitLab CI"
-    - sed -i "s|image: .*app:.*|image: $IMAGE_NAME:main-$CI_COMMIT_SHA|" platform/gitops/argocd/apps/app/base/deployment.yaml
-    - git add platform/gitops/argocd/apps/app/base/deployment.yaml
+    - sed -i "s|image: .*app:.*|image: $IMAGE_NAME:main-$CI_COMMIT_SHA|" platform/gitops/argocd/apps/erp/base/deployment.yaml
+    - git add platform/gitops/argocd/apps/erp/base/deployment.yaml
     - 'git commit -m "chore(gitops): deploy app main-$CI_COMMIT_SHA" || true'
     - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main

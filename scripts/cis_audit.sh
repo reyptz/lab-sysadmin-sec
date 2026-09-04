@@ -51,7 +51,7 @@ check "5.2.12" "SSH idle timeout" "grep -qE '^ClientAliveInterval' /etc/ssh/sshd
 check "5.4.1" "Password requirements" "test -f /etc/security/pwquality.conf"
 
 # 5.4.2 Ensure lockout for failed password attempts is configured
-check "5.4.2" "Failed password lockout" "grep -q 'pam_faillock' /etc/pam.d/common-auth"
+check "5.4.2" "Failed password lockout" "grep -q 'pam_faillock' /etc/pam.d/system-auth /etc/pam.d/password-auth"
 
 # 6.1.2 Ensure permissions on /etc/passwd are configured
 check "6.1.2" "passwd permissions" "stat -c '%a' /etc/passwd | grep -q '^644$'"

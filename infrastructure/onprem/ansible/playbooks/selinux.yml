@@ -1,6 +1,6 @@
 ---
 - name: SELinux Enforcing + Trivy scan
-  hosts: all_linux
+  hosts: rhel_servers
   collections:
     - ansible.posix
     - cyva.accs

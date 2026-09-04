@@ -1,6 +1,6 @@
 ---
 - name: RHCSA — cron/at jobs, File Permissions, ACLs
-  hosts: linux_servers
+  hosts: rhel_servers
   become: yes
   vars:
     demo_user: "rhcsauser"

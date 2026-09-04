@@ -1,0 +1,8 @@
+# Copier ce fichier en terraform.tfvars et adapter les valeurs.
+# terraform.tfvars est ignore par Git (voir .gitignore).
+
+environment       = "dev"
+allowed_ssh_cidr  = "1.2.3.4/32"
+rhel_ami_id       = "ami-0123456789abcdef0"
+key_pair_name     = ""
+# db_password     = ""  # laisser vide pour generer un mot de passe aleatoire
