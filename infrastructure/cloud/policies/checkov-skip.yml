@@ -1,8 +1,0 @@
-# Configuration Checkov : exceptions justifiees pour le lab
-# A deplacer dans un backend partage en production.
-
-skip-check:
-  # Le backend est intentionnellement en local pour le lab ; migrer vers S3/GCS/Blob en equipe
-  - CKV_TF_1
-  # VPC flow logs optionnel dans ce lab ; a activer en production
-  - CKV2_AWS_11
