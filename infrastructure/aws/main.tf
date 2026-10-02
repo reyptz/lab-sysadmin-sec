@@ -421,6 +421,10 @@ resource "aws_cloudwatch_metric_alarm" "high_cpu" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "Alerte SRE : CPU > 80% sur les serveurs applicatifs"
+  # Notifie le topic SNS d'alertes (sinon l'alarme ne previent personne).
+  alarm_actions = [aws_sns_topic.alerts.arn]
+  ok_actions    = [aws_sns_topic.alerts.arn]
+  treat_missing_data = "notBreaching"
   # Pas de dimensions : agrege sur toutes les instances de la region.
 }
 
@@ -465,4 +469,33 @@ resource "aws_s3_bucket_public_access_block" "backups" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# Refuse tout accès non chiffré (HTTP) au bucket — contrôle CIS / durcissement TLS.
+resource "aws_s3_bucket_policy" "backups_tls_only" {
+  bucket = aws_s3_bucket.backups.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          aws_s3_bucket.backups.arn,
+          "${aws_s3_bucket.backups.arn}/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+
+  # Appliquer la politique après le blocage d'accès public pour eviter les conflits.
+  depends_on = [aws_s3_bucket_public_access_block.backups]
 }

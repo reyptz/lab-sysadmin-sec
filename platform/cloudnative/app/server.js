@@ -5,6 +5,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Sécurité : ne pas divulguer le framework utilisé (fingerprinting).
+app.disable('x-powered-by');
+
 // Servir les fichiers statiques du dossier 'public'
 app.use(express.static(path.join(__dirname, 'public')));
 
