@@ -1,5 +1,5 @@
 # Node 24 LTS : ne pas figer le runtime sur Node 20, arrivé en fin de support.
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
+FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797
 
 # Exécuter en mode production (désactive le code de debug, optimise Express)
 ENV NODE_ENV=production
