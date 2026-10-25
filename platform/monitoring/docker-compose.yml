@@ -1,29 +1,34 @@
-version: '3.8'
+# Stack de monitoring locale (lab).
+# - Digests vérifiés auprès du registre le 25 octobre 2026.
+# - Ports bindés sur 127.0.0.1 : la stack n'est pas exposée sur le réseau local.
 services:
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
     container_name: node-exporter
     restart: unless-stopped
     ports:
-      - "9100:9100"
+      - "127.0.0.1:9100:9100"
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
     container_name: prometheus
     restart: unless-stopped
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     container_name: grafana
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD}
+      # GF_ADMIN_PASSWORD doit être défini dans l'environnement ou un fichier .env
+      # (non versionné). Grafana refuse une valeur vide si GF_SECURITY_ADMIN_PASSWORD
+      # est requis par la politique locale.
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD:?GF_ADMIN_PASSWORD doit etre defini}
     volumes:
       - grafana-data:/var/lib/grafana
 

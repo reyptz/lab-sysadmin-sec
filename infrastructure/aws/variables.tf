@@ -53,10 +53,15 @@ variable "instance_type_app" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR autorisé à se connecter en SSH au bastion (obligatoire)"
+  description = "CIDR autorisé à se connecter en SSH au bastion (obligatoire, jamais 0.0.0.0/0)"
   type        = string
-  default     = ""
   sensitive   = true
+
+  # Fail-closed : refuser tout plan sans CIDR explicitement restreint.
+  validation {
+    condition     = can(cidrnetmask(var.allowed_ssh_cidr)) && try(tonumber(split("/", var.allowed_ssh_cidr)[1]) >= 24, false)
+    error_message = "allowed_ssh_cidr doit etre un CIDR IPv4 de /24 a /32 (ex: 1.2.3.4/32)."
+  }
 }
 
 variable "key_pair_name" {
@@ -80,6 +85,13 @@ variable "organization_id" {
 variable "organization_root_id" {
   description = "Root ID de l'AWS Organization"
   type        = string
+  default     = ""
+}
+
+variable "redis_auth_token" {
+  description = "Auth token ElastiCache Redis (laisser vide pour générer un token aléatoire)"
+  type        = string
+  sensitive   = true
   default     = ""
 }
 

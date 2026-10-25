@@ -72,10 +72,10 @@ resource "aws_apigatewayv2_api" "main" {
 }
 
 resource "aws_apigatewayv2_integration" "lambda_integration" {
-  api_id             = aws_apigatewayv2_api.main.id
-  integration_type   = "AWS_PROXY"
-  integration_uri      = aws_lambda_function.health_check.invoke_arn
-  integration_method = "POST"
+  api_id                 = aws_apigatewayv2_api.main.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.health_check.invoke_arn
+  integration_method     = "POST"
   payload_format_version = "2.0"
 }
 
@@ -89,6 +89,26 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.main.id
   name        = var.environment
   auto_deploy = true
+
+  # Journalisation des accès vers CloudWatch (audit / détection d'abus).
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.apigw_access.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      ip             = "$context.identity.sourceIp"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      routeKey       = "$context.routeKey"
+      status         = "$context.status"
+      protocol       = "$context.protocol"
+      responseLength = "$context.responseLength"
+    })
+  }
+}
+
+resource "aws_cloudwatch_log_group" "apigw_access" {
+  name              = "/${var.project_name}/apigw-access-${var.environment}"
+  retention_in_days = 14
 }
 
 resource "aws_lambda_permission" "api_gateway" {

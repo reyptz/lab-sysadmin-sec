@@ -3,17 +3,6 @@ kind: Role
 metadata:
   name: erp-app
   namespace: erp-prod
-rules:
-  # Lecture de sa propre config (liveness/readiness parfois utile)
-  - apiGroups: ['']
-    resources: ['pods']
-    verbs: ['get', 'list']
-  # Lecture des endpoints du service pour discovery
-  - apiGroups: ['']
-    resources: ['endpoints', 'services']
-    verbs: ['get', 'list']
-  # Lecture des secrets managed par External Secrets Operator (lecture seule)
-  - apiGroups: ['']
-    resources: ['secrets']
-    verbs: ['get']
-    resourceNames: ['erp-db-credentials']
+# Les probes, le DNS et secretKeyRef sont gérés par Kubernetes.
+# L'application n'appelle pas l'API : aucun droit de lecture de secrets requis.
+rules: []

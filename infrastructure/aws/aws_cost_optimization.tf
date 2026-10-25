@@ -71,7 +71,7 @@ EOF
 
 # Scheduled dev shutdown (cost control via EventBridge + Lambda)
 resource "aws_cloudwatch_event_rule" "shutdown_dev" {
-  count = var.environment == "dev" ? 1 : 0
+  count               = var.environment == "dev" ? 1 : 0
   name                = "${var.project_name}-shutdown-dev-${var.environment}"
   description         = "Arret automatique des instances dev a 20h"
   schedule_expression = "cron(0 20 * * ? *)"
@@ -79,12 +79,12 @@ resource "aws_cloudwatch_event_rule" "shutdown_dev" {
 
 resource "aws_cloudwatch_event_target" "shutdown_lambda" {
   count = var.environment == "dev" ? 1 : 0
-  rule = aws_cloudwatch_event_rule.shutdown_dev[0].name
-  arn  = aws_lambda_function.health_check.arn
+  rule  = aws_cloudwatch_event_rule.shutdown_dev[0].name
+  arn   = aws_lambda_function.health_check.arn
 }
 
 resource "aws_lambda_permission" "allow_events" {
-  count = var.environment == "dev" ? 1 : 0
+  count         = var.environment == "dev" ? 1 : 0
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.health_check.function_name

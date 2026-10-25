@@ -12,4 +12,4 @@ commonLabels:
 images:
   - name: erp-app
     newName: ghcr.io/reyptz/lab-sysadmin-sec/erp-app
-    newTag: latest
+    newTag: 1.0.0

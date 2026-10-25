@@ -156,8 +156,10 @@ resource "aws_security_group" "bastion" {
     cidr_blocks = [var.allowed_ssh_cidr]
   }
 
+  # Egress ouvert : requis pour les mises à jour dnf et l'agent SSM via Internet.
+  # Pour le restreindre au VPC, il faut déployer des VPC endpoints (SSM, S3, ECR).
   egress {
-    description = "Tout trafic sortant"
+    description = "Trafic sortant (SSM, mises a jour)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -224,7 +226,10 @@ resource "aws_security_group" "app" {
     security_groups = [aws_security_group.alb.id]
   }
 
+  # Egress via la NAT Gateway : requis pour SSM, CloudWatch Logs et dnf update.
+  # Restreindre davantage nécessiterait des VPC endpoints (SSM/Logs/S3/ECR).
   egress {
+    description = "Trafic sortant via NAT (SSM, API AWS, mises a jour)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -242,11 +247,11 @@ resource "aws_security_group" "internal" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description     = "ICMP depuis le VPC"
-    from_port       = -1
-    to_port         = -1
-    protocol        = "icmp"
-    cidr_blocks     = [var.vpc_cidr]
+    description = "ICMP depuis le VPC"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = [var.vpc_cidr]
   }
 
   ingress {
@@ -342,19 +347,22 @@ locals {
 }
 
 resource "aws_instance" "bastion" {
-  ami                    = local.rhel_ami_id
-  instance_type          = var.instance_type_bastion
-  subnet_id              = aws_subnet.public[0].id
-  vpc_security_group_ids = [aws_security_group.bastion.id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
-  key_name               = var.key_pair_name != "" ? var.key_pair_name : null
-  user_data              = local.cloud_init
+  ami                         = local.rhel_ami_id
+  instance_type               = var.instance_type_bastion
+  subnet_id                   = aws_subnet.public[0].id
+  vpc_security_group_ids      = [aws_security_group.bastion.id]
+  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
+  key_name                    = var.key_pair_name != "" ? var.key_pair_name : null
+  user_data                   = local.cloud_init
   user_data_replace_on_change = true
   associate_public_ip_address = true
-  monitoring             = true
+  monitoring                  = true
 
   metadata_options {
-    http_tokens = "required"
+    # IMDSv2 obligatoire + hop limit 1 : un conteneur/processus sur l'instance ne
+    # peut pas relayer de requêtes vers le metadata service (anti-SSRF pivot).
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
   }
 
   root_block_device {
@@ -371,19 +379,20 @@ resource "aws_instance" "bastion" {
 }
 
 resource "aws_instance" "app" {
-  count                  = 2
-  ami                    = local.rhel_ami_id
-  instance_type          = var.instance_type_app
-  subnet_id              = aws_subnet.private[count.index].id
-  vpc_security_group_ids = [aws_security_group.app.id, aws_security_group.internal.id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
-  user_data              = local.cloud_init
+  count                       = 2
+  ami                         = local.rhel_ami_id
+  instance_type               = var.instance_type_app
+  subnet_id                   = aws_subnet.private[count.index].id
+  vpc_security_group_ids      = [aws_security_group.app.id, aws_security_group.internal.id]
+  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
+  user_data                   = local.cloud_init
   user_data_replace_on_change = true
   associate_public_ip_address = false
-  monitoring             = true
+  monitoring                  = true
 
   metadata_options {
-    http_tokens = "required"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
   }
 
   root_block_device {
@@ -422,8 +431,8 @@ resource "aws_cloudwatch_metric_alarm" "high_cpu" {
   threshold           = 80
   alarm_description   = "Alerte SRE : CPU > 80% sur les serveurs applicatifs"
   # Notifie le topic SNS d'alertes (sinon l'alarme ne previent personne).
-  alarm_actions = [aws_sns_topic.alerts.arn]
-  ok_actions    = [aws_sns_topic.alerts.arn]
+  alarm_actions      = [aws_sns_topic.alerts.arn]
+  ok_actions         = [aws_sns_topic.alerts.arn]
   treat_missing_data = "notBreaching"
   # Pas de dimensions : agrege sur toutes les instances de la region.
 }
@@ -459,6 +468,23 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
       sse_algorithm = "aws:kms"
     }
     bucket_key_enabled = true
+  }
+}
+
+# Nettoie uniquement les uploads incomplets ; la rétention des sauvegardes
+# existantes doit être décidée séparément selon les besoins de restauration.
+resource "aws_s3_bucket_lifecycle_configuration" "backups" {
+  bucket = aws_s3_bucket.backups.id
+
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
 

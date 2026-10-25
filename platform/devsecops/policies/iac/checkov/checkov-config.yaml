@@ -10,7 +10,5 @@ compact: true
 output:
   - sarif
 
-skip-check:
-  # Autoriser certains ajustements spécifiques au lab
-  - CKV_AWS_8
-  - CKV_AWS_79
+# Aucun skip : les ressources Terraform satisfont désormais CKV_AWS_8
+# (EBS chiffrés) et CKV_AWS_79 (IMDSv2 obligatoire).

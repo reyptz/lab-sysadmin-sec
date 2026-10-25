@@ -10,4 +10,4 @@ resources:
 
 images:
   - name: erp-app
-    newTag: prod-latest
+    newTag: prod-1.0.0

@@ -12,4 +12,4 @@ replicas:
 
 images:
   - name: erp-app
-    newTag: staging-latest
+    newTag: staging-1.0.0

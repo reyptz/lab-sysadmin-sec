@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # CIS Benchmarks audit script (Linux Level 1)
 set -euo pipefail
+umask 077
+if [[ $EUID -ne 0 ]]; then
+    echo "Exécuter en root/sudo pour lire les fichiers audités."
+    exit 1
+fi
 
 REPORT_DIR="/var/log/cis-audit-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$REPORT_DIR"
@@ -57,7 +62,10 @@ check "5.4.2" "Failed password lockout" "grep -q 'pam_faillock' /etc/pam.d/syste
 check "6.1.2" "passwd permissions" "stat -c '%a' /etc/passwd | grep -q '^644$'"
 
 # 6.2.1 Ensure password fields are not empty
-check "6.2.1" "No empty passwords" "! awk -F: '($2==\"\"){print $1}' /etc/shadow"
+no_empty_passwords() {
+    awk -F: '$2 == "" { found = 1 } END { exit found ? 1 : 0 }' /etc/shadow
+}
+check "6.2.1" "No empty passwords" "no_empty_passwords"
 
 echo "=== Summary ===" >> "$REPORT"
 echo "PASS: $PASS" >> "$REPORT"
@@ -66,3 +74,4 @@ echo "FAIL: $FAIL" >> "$REPORT"
 TARBALL="${REPORT_DIR}.tar.gz"
 tar -czf "$TARBALL" -C /var/log "$(basename "$REPORT_DIR")"
 echo "[+] Report saved: $TARBALL"
+(( FAIL == 0 ))

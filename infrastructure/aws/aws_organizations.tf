@@ -6,16 +6,16 @@
 # Ce fichier suppose que l'organization existe et injecte son ID via variable.
 
 resource "aws_organizations_policy" "deny_root_account" {
-  count   = var.organization_id != "" ? 1 : 0
-  name    = "DenyRootAccountUsage"
-  type    = "SERVICE_CONTROL_POLICY"
+  count = var.organization_id != "" ? 1 : 0
+  name  = "DenyRootAccountUsage"
+  type  = "SERVICE_CONTROL_POLICY"
   content = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect    = "Deny"
-        Action    = "*"
-        Resource  = "*"
+        Effect   = "Deny"
+        Action   = "*"
+        Resource = "*"
         Condition = {
           StringLike = {
             "aws:PrincipalArn" = ["arn:aws:iam::*:root"]
@@ -27,9 +27,9 @@ resource "aws_organizations_policy" "deny_root_account" {
 }
 
 resource "aws_organizations_policy" "require_imds_v2" {
-  count   = var.organization_id != "" ? 1 : 0
-  name    = "RequireIMDSv2"
-  type    = "SERVICE_CONTROL_POLICY"
+  count = var.organization_id != "" ? 1 : 0
+  name  = "RequireIMDSv2"
+  type  = "SERVICE_CONTROL_POLICY"
   content = jsonencode({
     Version = "2012-10-17"
     Statement = [

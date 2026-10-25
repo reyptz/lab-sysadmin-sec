@@ -30,23 +30,25 @@ resource "aws_db_parameter_group" "main" {
 
 # RDS PostgreSQL multi-AZ
 resource "aws_db_instance" "postgres" {
-  identifier             = "${var.project_name}-postgres-${var.environment}"
-  engine                 = "postgres"
-  engine_version         = "16.1"
-  instance_class         = "db.t3.micro"
-  allocated_storage      = 20
-  storage_type           = "gp3"
-  storage_encrypted      = true
-  multi_az               = false
-  db_name                = "appdatabase"
-  username               = "dbadmin"
-  password               = local.db_password
-  db_subnet_group_name   = aws_db_subnet_group.main.name
-  vpc_security_group_ids = [aws_security_group.internal.id]
-  parameter_group_name   = aws_db_parameter_group.main.name
-  skip_final_snapshot    = true
-  backup_retention_period = 7
-  enabled_cloudwatch_logs_exports = ["postgresql"]
+  identifier                          = "${var.project_name}-postgres-${var.environment}"
+  engine                              = "postgres"
+  engine_version                      = "16.1"
+  instance_class                      = "db.t3.micro"
+  allocated_storage                   = 20
+  storage_type                        = "gp3"
+  storage_encrypted                   = true
+  multi_az                            = false
+  publicly_accessible                 = false
+  iam_database_authentication_enabled = true
+  db_name                             = "appdatabase"
+  username                            = "dbadmin"
+  password                            = local.db_password
+  db_subnet_group_name                = aws_db_subnet_group.main.name
+  vpc_security_group_ids              = [aws_security_group.internal.id]
+  parameter_group_name                = aws_db_parameter_group.main.name
+  skip_final_snapshot                 = true
+  backup_retention_period             = 7
+  enabled_cloudwatch_logs_exports     = ["postgresql"]
 
   tags = {
     Name = "${var.project_name}-postgres"
@@ -55,17 +57,19 @@ resource "aws_db_instance" "postgres" {
 
 # Aurora PostgreSQL cluster
 resource "aws_rds_cluster" "aurora" {
-  cluster_identifier      = "${var.project_name}-aurora-${var.environment}"
-  engine                  = "aurora-postgresql"
-  engine_version          = "15.4"
-  database_name           = "auroradb"
-  master_username         = "dbadmin"
-  master_password         = local.db_password
-  db_subnet_group_name    = aws_db_subnet_group.main.name
-  vpc_security_group_ids  = [aws_security_group.internal.id]
-  storage_encrypted       = true
-  backup_retention_period = 7
-  skip_final_snapshot     = true
+  cluster_identifier              = "${var.project_name}-aurora-${var.environment}"
+  engine                          = "aurora-postgresql"
+  engine_version                  = "15.4"
+  database_name                   = "auroradb"
+  master_username                 = "dbadmin"
+  master_password                 = local.db_password
+  db_subnet_group_name            = aws_db_subnet_group.main.name
+  vpc_security_group_ids          = [aws_security_group.internal.id]
+  storage_encrypted               = true
+  backup_retention_period         = 7
+  skip_final_snapshot             = true
+  deletion_protection             = var.environment == "prod"
+  enabled_cloudwatch_logs_exports = ["postgresql"]
 }
 
 resource "aws_rds_cluster_instance" "aurora_instances" {
@@ -79,9 +83,9 @@ resource "aws_rds_cluster_instance" "aurora_instances" {
 
 # DynamoDB table
 resource "aws_dynamodb_table" "app_sessions" {
-  name           = "${var.project_name}-sessions-${var.environment}"
-  billing_mode     = "PAY_PER_REQUEST"
-  hash_key       = "session_id"
+  name         = "${var.project_name}-sessions-${var.environment}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "session_id"
 
   attribute {
     name = "session_id"
@@ -107,6 +111,16 @@ resource "aws_elasticache_subnet_group" "redis" {
   subnet_ids = aws_subnet.private[*].id
 }
 
+# Auth token Redis (le chiffrement en transit exige un token côté client de toute façon).
+resource "random_password" "redis_auth" {
+  length  = 32
+  special = false # certains clients Redis rejettent les caractères spéciaux dans l'AUTH
+}
+
+locals {
+  redis_auth_token = var.redis_auth_token != "" ? var.redis_auth_token : random_password.redis_auth.result
+}
+
 # ElastiCache Redis cluster
 resource "aws_elasticache_replication_group" "redis" {
   replication_group_id       = "${var.project_name}-redis-${var.environment}"
@@ -115,12 +129,13 @@ resource "aws_elasticache_replication_group" "redis" {
   engine_version             = "7.1"
   node_type                  = "cache.t3.micro"
   num_cache_clusters         = 2
-  automatic_failover_enabled   = true
+  automatic_failover_enabled = true
   multi_az_enabled           = true
   subnet_group_name          = aws_elasticache_subnet_group.redis.name
   security_group_ids         = [aws_security_group.internal.id]
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true
+  auth_token                 = local.redis_auth_token
 
   tags = {
     Name = "${var.project_name}-redis"

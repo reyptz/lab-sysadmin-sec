@@ -77,7 +77,9 @@
       ansible.builtin.cron:
         name: "RHCSA daily log backup"
         user: "{{ demo_user }}"
-        job: "tar czf /tmp/logs-$(date +\\%Y\\%m\\%d).tar.gz /var/log/syslog 2>/dev/null || tar czf /tmp/logs-$(date +\\%Y\\%m\\%d).tar.gz /var/log/messages 2>/dev/null"
+        # Écrire dans le home de l'utilisateur : /tmp avec nom prévisible expose
+        # aux attaques par lien symbolique sur les systèmes multi-utilisateurs.
+        job: "tar czf $HOME/logs-$(date +\\%Y\\%m\\%d).tar.gz /var/log/syslog 2>/dev/null || tar czf $HOME/logs-$(date +\\%Y\\%m\\%d).tar.gz /var/log/messages 2>/dev/null"
         minute: "0"
         hour: "2"
         state: present

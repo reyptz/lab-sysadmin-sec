@@ -7,24 +7,38 @@ packages:
   - firewalld
   - chrony
   - dnf-automatic
-  - auditd
+  - audit
 
-users:
-  - name: labadmin
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-    lock_passwd: true
-    ssh_authorized_keys: []
+# Pas de compte sudo NOPASSWD supplémentaire : l'administration passe par
+# l'utilisateur par défaut de l'AMI (ec2-user, clé SSH) ou AWS SSM Session
+# Manager. Injecter des clés supplémentaires ici si nécessaire :
+# users:
+#   - name: labadmin
+#     sudo: ALL=(ALL) ALL
+#     lock_passwd: true
+#     ssh_authorized_keys: [<clé publique>]
 
-ssh:
-  permit_root_login: false
-  password_authentication: false
+disable_root: true
+ssh_pwauth: false
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/00-lab-hardening.conf
+    owner: root:root
+    permissions: '0600'
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitEmptyPasswords no
+      AllowAgentForwarding no
+      X11Forwarding no
+      MaxAuthTries 3
 
 runcmd:
   # RHCSA / hardening : desactive le root login et force l'authentification par cle
   - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
   - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-  - systemctl restart sshd
+  - /usr/sbin/sshd -t && systemctl reload sshd
   # Firewall minimal avec firewalld
   - systemctl enable --now firewalld
   - firewall-cmd --add-service=ssh --permanent

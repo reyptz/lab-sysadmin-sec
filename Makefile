@@ -57,7 +57,7 @@ checkov: ## Scan de securite du module AWS avec Checkov
 	checkov -d infrastructure/aws --framework terraform
 
 security-audit: ## Lance l'audit CIS local
-	bash security/audit/cis_audit.sh
+	bash scripts/cis_audit.sh
 
 # ---------------------------------------------------------------
 # SRE / DevSecOps

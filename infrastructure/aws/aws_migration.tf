@@ -4,14 +4,14 @@
 
 # Database Migration Service (DMS) — replication instance + endpoints
 resource "aws_dms_replication_instance" "main" {
-  count                = var.enable_dms ? 1 : 0
-  replication_instance_id    = "${var.project_name}-dms-${var.environment}"
-  replication_instance_class   = "dms.t3.micro"
-  allocated_storage            = 20
-  engine_version               = "3.5.1"
-  publicly_accessible            = false
-  replication_subnet_group_id  = aws_dms_replication_subnet_group.main[0].id
-  vpc_security_group_ids       = [aws_security_group.internal.id]
+  count                       = var.enable_dms ? 1 : 0
+  replication_instance_id     = "${var.project_name}-dms-${var.environment}"
+  replication_instance_class  = "dms.t3.micro"
+  allocated_storage           = 20
+  engine_version              = "3.5.1"
+  publicly_accessible         = false
+  replication_subnet_group_id = aws_dms_replication_subnet_group.main[0].id
+  vpc_security_group_ids      = [aws_security_group.internal.id]
 
   tags = {
     Name = "${var.project_name}-dms"
@@ -19,9 +19,9 @@ resource "aws_dms_replication_instance" "main" {
 }
 
 resource "aws_dms_replication_subnet_group" "main" {
-  count       = var.enable_dms ? 1 : 0
+  count                       = var.enable_dms ? 1 : 0
   replication_subnet_group_id = "${var.project_name}-dms-subnet-${var.environment}"
-  subnet_ids  = aws_subnet.private[*].id
+  subnet_ids                  = aws_subnet.private[*].id
 
   tags = {
     Name = "${var.project_name}-dms-subnet"

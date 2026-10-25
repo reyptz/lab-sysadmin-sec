@@ -10,7 +10,9 @@ resource "aws_lb" "app" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
 
-  enable_deletion_protection = false
+  enable_deletion_protection = var.environment == "prod"
+  # Rejette les en-têtes HTTP malformés avant de les relayer aux cibles.
+  drop_invalid_header_fields = true
 
   tags = {
     Name = "${var.project_name}-alb"
@@ -50,12 +52,13 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# Network Load Balancer (NLB) example
+# Network Load Balancer (NLB) example — interne : un NLB de démo n'a pas vocation
+# à être exposé publiquement. Le point d'entrée public reste l'ALB.
 resource "aws_lb" "nlb" {
   name               = "${var.project_name}-nlb-${var.environment}"
-  internal           = false
+  internal           = true
   load_balancer_type = "network"
-  subnets            = aws_subnet.public[*].id
+  subnets            = aws_subnet.private[*].id
 
   tags = {
     Name = "${var.project_name}-nlb"
@@ -119,8 +122,8 @@ resource "aws_iam_role" "ecs_exec" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
     }]
   })
@@ -136,8 +139,8 @@ resource "aws_iam_role" "ecs_task" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
     }]
   })
@@ -150,8 +153,13 @@ resource "aws_eks_cluster" "main" {
   version  = "1.30"
 
   vpc_config {
-    subnet_ids = aws_subnet.private[*].id
+    subnet_ids              = aws_subnet.private[*].id
+    endpoint_private_access = true
+    endpoint_public_access  = false
   }
+
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  depends_on                = [aws_iam_role_policy_attachment.eks_cluster]
 
   tags = {
     Name = "${var.project_name}-eks"
@@ -163,8 +171,8 @@ resource "aws_iam_role" "eks_cluster" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "eks.amazonaws.com" }
     }]
   })
@@ -187,7 +195,7 @@ resource "aws_route53_zone" "main" {
 
 # CloudFront distribution
 resource "aws_cloudfront_distribution" "cdn" {
-  count = var.domain_name != "" ? 1 : 0
+  count   = var.domain_name != "" ? 1 : 0
   enabled = true
 
   origin {
@@ -195,8 +203,11 @@ resource "aws_cloudfront_distribution" "cdn" {
     origin_id   = "ALBOrigin"
 
     custom_origin_config {
-      http_port              = 80
-      https_port             = 443
+      http_port  = 80
+      https_port = 443
+      # TODO : passer à "https-only" dès qu'un certificat ACM est attaché à
+      # l'ALB (listener 443). En l'état, CloudFront -> ALB transite en HTTP
+      # sur le réseau AWS (acceptable pour un lab, pas pour de la prod).
       origin_protocol_policy = "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
@@ -223,6 +234,8 @@ resource "aws_cloudfront_distribution" "cdn" {
 
   viewer_certificate {
     cloudfront_default_certificate = true
+    # AWS impose TLSv1 avec le certificat CloudFront par défaut.
+    # Une policy TLS minimale moderne nécessite un certificat ACM personnalisé.
   }
 
   tags = {

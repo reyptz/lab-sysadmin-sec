@@ -4,3 +4,11 @@ Dockerfile
 .dockerignore
 .git
 .gitignore
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+coverage
+*.test.js

@@ -8,13 +8,14 @@ ui_config {
 }
 
 bind_addr    = "0.0.0.0"
-client_addr  = "0.0.0.0"
+client_addr  = "127.0.0.1"
 advertise_addr = "{{ GetInterfaceIP \"eth0\" }}"
 
 ports {
-  http  = 8500
+  http  = -1
   https = 8501
-  grpc  = 8502
+  grpc  = -1
+  grpc_tls = 8503
 }
 
 encrypt = "uZ0...généré_avec_consul_keygen"  # Gossipping encryption

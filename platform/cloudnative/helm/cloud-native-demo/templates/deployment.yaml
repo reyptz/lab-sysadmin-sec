@@ -24,6 +24,12 @@ spec:
         # Ces labels doivent correspondre EXACTEMENT au selector ci-dessus.
         app: {{ .Chart.Name }}
     spec:
+      # Le Pod n'a pas besoin d'appeler l'API Kubernetes : on désactive le montage
+      # automatique du token ServiceAccount (limite l'impact en cas de compromission).
+      automountServiceAccountToken: false
+      # Contexte de sécurité du Pod (Pod Security Standards 'restricted').
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
       - name: {{ .Chart.Name }}
         # L'image et son tag sont construits dynamiquement depuis les configurations du values.yaml.
@@ -56,3 +62,8 @@ spec:
             port: 3000
           initialDelaySeconds: 2 # Initialisation rapide car l'app Node.js démarre presque instantanément.
           periodSeconds: 5
+
+        # Contexte de sécurité du conteneur : privilèges minimaux, root filesystem
+        # en lecture seule, toutes les capabilities Linux retirées.
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}

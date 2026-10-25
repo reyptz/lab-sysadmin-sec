@@ -249,9 +249,17 @@ copyBtn.addEventListener('click', () => {
 const terminalContent = document.getElementById('terminal-content');
 const tabs = document.querySelectorAll('.term-tab');
 
+// Échappe les données externes (hostname venant de l'API) avant injection
+// dans innerHTML — sinon un hostname malformé permettrait une XSS stockée.
+function escapeHtml(value) {
+  const div = document.createElement('div');
+  div.textContent = String(value);
+  return div.innerHTML;
+}
+
 const commandsData = {
   'kubectl-pods': (h) => {
-    const pod1 = h || 'cloud-native-demo-5b8d4f4c-x7y8z';
+    const pod1 = escapeHtml(h) || 'cloud-native-demo-5b8d4f4c-x7y8z';
     const pod2 = 'cloud-native-demo-5b8d4f4c-a9b0c';
     return `<span class="term-prompt">user@k8s:~$</span> <span class="term-cmd">kubectl get pods -o wide</span>
 <span class="term-header">NAME                                 READY   STATUS    RESTARTS   AGE   IP            NODE</span>
@@ -264,7 +272,7 @@ ${pod2}     1/1     Running   0          18m   10.244.0.6    docker-desktop`;
 cloud-native-demo-svc    LoadBalancer   10.96.240.115   localhost     80:31234/TCP   19m`;
   },
   'docker-ps': (h) => {
-    const id = h ? h.substring(0, 12) : '30fe232bb7a2';
+    const id = h ? escapeHtml(h.substring(0, 12)) : '30fe232bb7a2';
     return `<span class="term-prompt">user@docker:~$</span> <span class="term-cmd">docker ps --format "table {{.ID}}\\t{{.Image}}\\t{{.Status}}\\t{{.Names}}"</span>
 <span class="term-header">CONTAINER ID   IMAGE                      STATUS          NAMES</span>
 <span class="term-success">${id}</span>   cloudnative:latest         Up 18 minutes   cloud-native-app-1`;

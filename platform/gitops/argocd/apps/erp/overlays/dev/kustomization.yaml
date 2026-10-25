@@ -12,4 +12,4 @@ replicas:
 
 images:
   - name: erp-app
-    newTag: dev-latest
+    newTag: dev-1.0.0

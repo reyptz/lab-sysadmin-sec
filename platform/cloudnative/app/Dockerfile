@@ -1,5 +1,5 @@
-# Utiliser une image de base officielle, spécifique et légère (Alpine)
-FROM node:20-alpine
+# Node 24 LTS : ne pas figer le runtime sur Node 20, arrivé en fin de support.
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 
 # Exécuter en mode production (désactive le code de debug, optimise Express)
 ENV NODE_ENV=production
@@ -16,10 +16,12 @@ COPY package*.json ./
 # Installer uniquement les dépendances de production.
 # `npm ci` garantit un build reproductible à partir du package-lock.json
 # (contrairement à `npm install` qui peut muter le lockfile).
-RUN npm ci --omit=dev && npm cache clean --force
+# --ignore-scripts bloque les scripts postinstall des dépendances (supply chain).
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-# Copier le reste du code de l'application en l'attribuant à l'utilisateur non-root
-COPY --chown=node:node . .
+# Copier uniquement les fichiers nécessaires, non modifiables par l'utilisateur node.
+COPY server.js ./
+COPY public/ ./public/
 
 # Sécurité SRE/DevOps : Ne jamais exécuter l'application en tant que 'root'
 # L'image officielle Node.js fournit un utilisateur non privilégié nommé 'node'.
@@ -33,5 +35,7 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
-# Commande pour démarrer l'application
-CMD ["npm", "start"]
+# Commande pour démarrer l'application.
+# node direct (plutôt que 'npm start') garantit que le process reçoit les signaux
+# (SIGTERM) pour un arrêt propre sous Kubernetes.
+CMD ["node", "server.js"]

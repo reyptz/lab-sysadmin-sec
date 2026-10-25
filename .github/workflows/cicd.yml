@@ -12,6 +12,11 @@ on:
       - 'platform/cloudnative/app/**'
       - '.github/workflows/cicd.yml'
 
+# Moindre privilège par défaut pour GITHUB_TOKEN ; les jobs qui en ont besoin
+# (push image, commit GitOps, upload SARIF) déclarent leurs propres permissions.
+permissions:
+  contents: read
+
 env:
   APP_DIR: platform/cloudnative/app
   REGISTRY: ghcr.io
@@ -31,13 +36,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: ${{ env.APP_DIR }}/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ env.APP_DIR }}
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: Audit production dependencies
+        working-directory: ${{ env.APP_DIR }}
+        run: npm audit --omit=dev --audit-level=moderate
 
       - name: Lint
         working-directory: ${{ env.APP_DIR }}
@@ -106,6 +115,10 @@ jobs:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      contents: read
+      # Requis pour l'upload du rapport SARIF Trivy vers l'onglet Security.
+      security-events: write
     steps:
       - name: Download image artifact
         uses: actions/download-artifact@v4
@@ -117,7 +130,7 @@ jobs:
         run: docker load -i /tmp/app.tar
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: 'sarif'
@@ -130,11 +143,11 @@ jobs:
           sarif_file: 'trivy-results.sarif'
 
       - name: Fail on high/critical CVEs
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           exit-code: '1'
-          ignore-unfixed: true
+          ignore-unfixed: false
           severity: 'CRITICAL,HIGH'
 
   # -------------------------------------------------------------------------
@@ -171,7 +184,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,prefix=main-
+            type=sha,prefix=main-,format=long
             type=raw,value=latest
 
       - name: Tag and push
@@ -190,6 +203,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      # Requis pour le commit/push de mise à jour du manifest GitOps.
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4

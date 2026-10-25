@@ -20,14 +20,17 @@ spec:
         app: erp-app
     spec:
       serviceAccountName: erp-app
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: erp-app
-          image: erp-app:latest
-          imagePullPolicy: Always
+          image: erp-app:1.0.0
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
               name: http

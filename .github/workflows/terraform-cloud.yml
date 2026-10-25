@@ -1,6 +1,7 @@
 name: Terraform AWS CI/CD
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, master]
     paths:
@@ -11,6 +12,10 @@ on:
     paths:
       - 'infrastructure/aws/**'
       - '.github/workflows/terraform-cloud.yml'
+
+# Moindre privilège : le token ne sert qu'à lire le code.
+permissions:
+  contents: read
 
 env:
   TF_IN_AUTOMATION: true
@@ -50,21 +55,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@master
+        # Version épinglée (jamais @master) + échec bloquant sur finding.
+        uses: bridgecrewio/checkov-action@v12.3126.0
         with:
           directory: infrastructure/aws
           framework: terraform
-          soft_fail: true
+          soft_fail: false
           output_format: cli
 
   plan:
     name: Plan AWS
     runs-on: ubuntu-latest
     needs: [lint, security]
-    if: github.event_name == 'pull_request'
+    # Le code d'une PR ne reçoit jamais d'identifiants AWS.
+    if: github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      contents: read
+      id-token: write
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_allowed_ssh_cidr: ${{ vars.ALLOWED_SSH_CIDR }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,10 +83,16 @@ jobs:
         with:
           terraform_version: "1.7.0"
 
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: eu-west-3
+
       - name: Terraform init
         working-directory: infrastructure/aws
         run: terraform init
 
       - name: Terraform plan
         working-directory: infrastructure/aws
-        run: terraform plan -var="environment=ci" -var="allowed_ssh_cidr=10.0.0.0/8" -var="rhel_ami_id=ami-0123456789abcdef0" -input=false
+        run: terraform plan -var="environment=ci" -input=false

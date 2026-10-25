@@ -5,10 +5,12 @@
 
 # SQS queues
 resource "aws_sqs_queue" "app_events" {
-  name                        = "${var.project_name}-app-events-${var.environment}"
-  visibility_timeout_seconds  = 180
-  message_retention_seconds   = 86400
-  receive_wait_time_seconds   = 10
+  name                       = "${var.project_name}-app-events-${var.environment}"
+  visibility_timeout_seconds = 180
+  message_retention_seconds  = 86400
+  receive_wait_time_seconds  = 10
+  # SSE-SQS : chiffrement géré par SQS, sans clé KMS client.
+  sqs_managed_sse_enabled = true
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.app_events_dlq.arn
     maxReceiveCount     = 3
@@ -20,7 +22,8 @@ resource "aws_sqs_queue" "app_events" {
 }
 
 resource "aws_sqs_queue" "app_events_dlq" {
-  name = "${var.project_name}-app-events-dlq-${var.environment}"
+  name                    = "${var.project_name}-app-events-dlq-${var.environment}"
+  sqs_managed_sse_enabled = true
 
   tags = {
     Name = "${var.project_name}-app-events-dlq"
@@ -28,12 +31,66 @@ resource "aws_sqs_queue" "app_events_dlq" {
 }
 
 # SNS topic
+data "aws_caller_identity" "current" {}
+
+# CloudWatch/EventBridge nécessitent des autorisations sur la clé de chiffrement.
+# La policy de la clé AWS managée alias/aws/sns n'est pas personnalisable.
+resource "aws_kms_key" "alerts" {
+  description         = "Encryption for SNS monitoring alerts"
+  enable_key_rotation = true
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AccountKeyAdministration"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid       = "MonitoringPublishers"
+        Effect    = "Allow"
+        Principal = { Service = ["cloudwatch.amazonaws.com", "events.amazonaws.com"] }
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_sns_topic" "alerts" {
-  name = "${var.project_name}-alerts-${var.environment}"
+  name              = "${var.project_name}-alerts-${var.environment}"
+  kms_master_key_id = aws_kms_key.alerts.arn
 
   tags = {
     Name = "${var.project_name}-alerts"
   }
+}
+
+resource "aws_sns_topic_policy" "alerts" {
+  arn = aws_sns_topic.alerts.arn
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "MonitoringPublishers"
+        Effect    = "Allow"
+        Principal = { Service = ["cloudwatch.amazonaws.com", "events.amazonaws.com"] }
+        Action    = "sns:Publish"
+        Resource  = aws_sns_topic.alerts.arn
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+          ArnEquals = {
+            "aws:SourceArn" = [aws_cloudwatch_metric_alarm.high_cpu.arn, aws_cloudwatch_event_rule.ec2_state_change.arn]
+          }
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_sns_topic_subscription" "email" {
@@ -49,8 +106,8 @@ resource "aws_cloudwatch_event_bus" "custom" {
 }
 
 resource "aws_cloudwatch_event_rule" "ec2_state_change" {
-  name        = "${var.project_name}-ec2-state-change-${var.environment}"
-  description = "Capture EC2 state changes"
+  name           = "${var.project_name}-ec2-state-change-${var.environment}"
+  description    = "Capture EC2 state changes"
   event_bus_name = aws_cloudwatch_event_bus.custom.name
 
   event_pattern = jsonencode({
@@ -109,8 +166,8 @@ resource "aws_iam_role" "firehose" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "firehose.amazonaws.com" }
     }]
   })

@@ -274,13 +274,14 @@
 
                 <div class="code-box-styled">
                   <h5>Exemple de Dockerfile d'une application</h5>
-                  <pre class="code-snippet"><code>FROM node:20
+                  <pre class="code-snippet"><code>FROM node:24-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
-COPY . .
+RUN npm ci --omit=dev --ignore-scripts
+COPY --chown=node:node . .
+USER node
 EXPOSE 3000
-CMD ["npm", "start"]</code></pre>
+CMD ["node", "server.js"]</code></pre>
                 </div>
               </div>
             </div>

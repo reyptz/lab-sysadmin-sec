@@ -13,10 +13,14 @@ variables:
   APP_DIR: platform/cloudnative/app
   IMAGE_NAME: $CI_REGISTRY_IMAGE/app
   DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: ""
+  # Le runner Docker doit partager /certs/client avec le service DinD.
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_HOST: tcp://docker:2376
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
 
 default:
-  image: node:20-alpine
+  image: node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
 
 # ---------------------------------------------------------------------------
 # Stage Lint
@@ -28,7 +32,7 @@ lint:
     - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     - cd $APP_DIR
-    - npm ci
+    - npm ci --ignore-scripts
     - npm run lint
 
 # ---------------------------------------------------------------------------
@@ -41,24 +45,22 @@ unit_tests:
     - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     - cd $APP_DIR
-    - npm ci
+    - npm ci --ignore-scripts
     - npm test
-  artifacts:
-    reports:
-      junit: $APP_DIR/junit.xml
-    paths:
-      - $APP_DIR/coverage/
-    when: always
+    - npm audit --omit=dev --audit-level=moderate
 
 # ---------------------------------------------------------------------------
 # Stage Build
 # ---------------------------------------------------------------------------
 build_image:
   stage: build
-  image: docker:latest
+  image: docker:cli@sha256:5e6baf67325a79f64ed3bed6863954d5e05d0f3d4e57cbdb14809346814bbfdb
   services:
-    - docker:dind
+    - name: docker:dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977
+      alias: docker
   needs:
+    - job: lint
+      artifacts: false
     - job: unit_tests
       artifacts: false
   rules:
@@ -68,10 +70,10 @@ build_image:
     - docker info
   script:
     - docker build -t $IMAGE_NAME:$CI_COMMIT_SHA -t $IMAGE_NAME:latest $APP_DIR
-    - docker save $IMAGE_NAME:$CI_COMMIT_SHA -o /tmp/app.tar
+    - docker save "$IMAGE_NAME:$CI_COMMIT_SHA" -o app.tar
   artifacts:
     paths:
-      - /tmp/app.tar
+      - app.tar
     expire_in: 1 hour
 
 # ---------------------------------------------------------------------------
@@ -79,15 +81,16 @@ build_image:
 # ---------------------------------------------------------------------------
 trivy_scan:
   stage: security
-  image: aquasec/trivy:latest
+  image:
+    name: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+    entrypoint: [""]
   needs:
     - build_image
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   script:
-    - docker load -i /tmp/app.tar
-    - trivy image --severity HIGH,CRITICAL --exit-code 1 $IMAGE_NAME:$CI_COMMIT_SHA
+    - trivy image --input app.tar --severity HIGH,CRITICAL --exit-code 1
   allow_failure: false
 
 # ---------------------------------------------------------------------------
@@ -95,17 +98,19 @@ trivy_scan:
 # ---------------------------------------------------------------------------
 push_image:
   stage: push
-  image: docker:latest
+  image: docker:cli@sha256:5e6baf67325a79f64ed3bed6863954d5e05d0f3d4e57cbdb14809346814bbfdb
   services:
-    - docker:dind
+    - name: docker:dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977
+      alias: docker
   needs:
     - trivy_scan
+    - build_image
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
-    - docker load -i /tmp/app.tar
+    - docker load -i app.tar
     - docker tag $IMAGE_NAME:$CI_COMMIT_SHA $IMAGE_NAME:main-$CI_COMMIT_SHA
     - docker tag $IMAGE_NAME:$CI_COMMIT_SHA $IMAGE_NAME:latest
     - docker push $IMAGE_NAME:main-$CI_COMMIT_SHA
@@ -124,7 +129,7 @@ update_gitops:
     - apk add --no-cache git sed
     - git config user.email "gitlab-ci@example.com"
     - git config user.name "GitLab CI"
-    - sed -i "s|image: .*app:.*|image: $IMAGE_NAME:main-$CI_COMMIT_SHA|" platform/gitops/argocd/apps/erp/base/deployment.yaml
+    - 'sed -i "s|image: .*app:.*|image: $IMAGE_NAME:main-$CI_COMMIT_SHA|" platform/gitops/argocd/apps/erp/base/deployment.yaml'
     - git add platform/gitops/argocd/apps/erp/base/deployment.yaml
     - 'git commit -m "chore(gitops): deploy app main-$CI_COMMIT_SHA" || true'
     - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main

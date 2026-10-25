@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test server.test.js",
-    "lint": "echo 'No linter configured yet'"
+    "lint": "node --check server.js && node --check public/script.js && node --check server.test.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.22.3",
+    "helmet": "^8.3.0"
   }
 }
