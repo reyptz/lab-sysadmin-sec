@@ -7,6 +7,17 @@
       dnf:
         update_cache: yes
 
+    # fail2ban n'est pas dans les dépôts RHEL : il provient d'EPEL.
+    - name: Importer la cle GPG EPEL
+      ansible.builtin.rpm_key:
+        key: "https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{{ ansible_distribution_major_version }}"
+        state: present
+
+    - name: Activer le depot EPEL
+      dnf:
+        name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm"
+        state: present
+
     - name: Installation des paquets de securite
       dnf:
         name:
@@ -47,7 +58,7 @@
           X11Forwarding no
           MaxAuthTries 3
           ClientAliveInterval 300
-          ClientAliveCountMax 0
+          ClientAliveCountMax 3
       notify: restart sshd
 
     - name: Configuration fail2ban SSH

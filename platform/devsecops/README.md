@@ -1,5 +1,12 @@
 # DevStack SRE Monitoring & Infrastructure
 
+> **Note** : ce dossier ne versionne que les fichiers de configuration
+> (Prometheus, Loki, Promtail, Tempo, OpenTelemetry Collector, Envoy, Logstash)
+> et les policies. Les fichiers `docker-compose*.yml` et les configurations
+> annexes cités plus bas (Alertmanager, datasources Grafana, JMX, Blackbox)
+> ne sont pas inclus dans le dépôt. La stack exécutable du lab est
+> `platform/monitoring/docker-compose.yml` (`make monitoring-up`).
+
 ## Overview
 
 This is a comprehensive SRE (Site Reliability Engineering) monitoring and infrastructure stack designed for development environments. It includes observability, security, CI/CD, and big data components with production-ready configurations.

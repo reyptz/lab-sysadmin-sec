@@ -10,5 +10,5 @@ compact: true
 output:
   - sarif
 
-# Aucun skip : les ressources Terraform satisfont désormais CKV_AWS_8
-# (EBS chiffrés) et CKV_AWS_79 (IMDSv2 obligatoire).
+# Config générique (Kubernetes, Dockerfile). Les exceptions justifiées du module
+# Terraform AWS sont dans infrastructure/aws/.checkov.yaml.

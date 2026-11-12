@@ -4,12 +4,17 @@
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/master/deploy/gatekeeper.yaml
-kubectl apply -f platform/devsecops/policies/kubernetes/gatekeeper/
+make policies-gatekeeper
 ```
+
+Les `ConstraintTemplate` doivent être appliqués et établis **avant** les
+`Constraint` (sinon le CRD de la contrainte n'existe pas encore) ; la cible
+`make policies-gatekeeper` respecte cet ordre.
 
 ## Policies
 
-- `deny-privileged.yaml` — Interdit les conteneurs privilégiés.
-- `deny-host-namespace.yaml` — Interdit `hostNetwork`, `hostPID`, `hostIPC`.
-- `required-labels.yaml` — Exige des labels obligatoires.
-- `allowed-registries.yaml` — Restreint les registres d'images.
+- `constraint-template-privileged.yaml` + `constraint-privileged.yaml` — Interdit les conteneurs privilégiés.
+- `constraint-template-host-namespace.yaml` + `constraint-host-namespace.yaml` — Interdit `hostNetwork`, `hostPID`, `hostIPC`.
+
+Les labels obligatoires et la restriction des registres d'images sont couverts
+par les policies Kyverno (`../kyverno/`).

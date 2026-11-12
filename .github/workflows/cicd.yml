@@ -20,7 +20,9 @@ permissions:
 env:
   APP_DIR: platform/cloudnative/app
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/app
+  # Doit correspondre à l'image référencée par les manifests GitOps
+  # (platform/gitops/argocd/apps/erp/base/kustomization.yaml).
+  IMAGE_NAME: ${{ github.repository }}/erp-app
 
 jobs:
   # -------------------------------------------------------------------------
@@ -78,7 +80,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
+            type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Set up Docker Buildx
@@ -188,12 +190,17 @@ jobs:
             type=raw,value=latest
 
       - name: Tag and push
+        env:
+          # Sortie multi-lignes (un tag par ligne) : passée par variable
+          # d'environnement, jamais interpolée directement dans le script.
+          TAGS: ${{ steps.meta.outputs.tags }}
+          SOURCE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
         run: |
-          SOURCE_TAG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          for tag in ${{ steps.meta.outputs.tags }}; do
-            docker tag $SOURCE_TAG $tag
-            docker push $tag
-          done
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag "$SOURCE_TAG" "$tag"
+            docker push "$tag"
+          done <<< "$TAGS"
 
   # -------------------------------------------------------------------------
   # Stage 5 : Déclenchement GitOps (ArgoCD) — placeholder
@@ -210,16 +217,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update GitOps image tag
+      # Le tag est géré par Kustomize (images.newTag). On ne met à jour que
+      # l'overlay dev : la promotion vers staging/prod se fait par PR.
+      - name: Update GitOps image tag (dev overlay)
+        env:
+          OVERLAY: platform/gitops/argocd/apps/erp/overlays/dev/kustomization.yaml
         run: |
-          sed -i "s|image: .*app:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-${{ github.sha }}|" \
-            platform/gitops/argocd/apps/erp/base/deployment.yaml
+          sed -i "s|^\(\s*newTag:\).*|\1 main-${GITHUB_SHA}|" "$OVERLAY"
+          grep -q "newTag: main-${GITHUB_SHA}" "$OVERLAY"
 
       - name: Commit and push GitOps update
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add platform/gitops/argocd/apps/erp/base/deployment.yaml
+          git add platform/gitops/argocd/apps/erp/overlays/dev/kustomization.yaml
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else

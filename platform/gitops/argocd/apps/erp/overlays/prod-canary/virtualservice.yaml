@@ -1,0 +1,18 @@
+# VirtualService Istio référencé par le Rollout (trafficRouting.istio).
+# Argo Rollouts ajuste les poids de la route "primary" à chaque étape du canary.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: erp-app
+spec:
+  hosts:
+    - erp-app
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: erp-app
+          weight: 100
+        - destination:
+            host: erp-app-canary
+          weight: 0

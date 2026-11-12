@@ -29,12 +29,9 @@ spec:
         - platform-team
 
   # Restrictions de ressources (bonne pratique fintech)
+  # Seule ressource cluster-scoped autorisée : Namespace (CreateNamespace=true).
+  # Role, RoleBinding et NetworkPolicy sont namespacées : elles ne relèvent pas
+  # de cette liste et restent autorisées dans les namespaces de destination.
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
-    - group: rbac.authorization.k8s.io
-      kind: Role
-    - group: rbac.authorization.k8s.io
-      kind: RoleBinding
-    - group: networking.k8s.io
-      kind: NetworkPolicy

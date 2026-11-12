@@ -25,6 +25,50 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# VPC : la Lambda n'a besoin que de HTTPS sortant (API AWS).
+resource "aws_security_group" "lambda" {
+  name        = "${var.project_name}-lambda-sg"
+  description = "Lambda health-check : HTTPS sortant uniquement"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    description = "HTTPS sortant (API AWS via NAT)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-lambda-sg"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_vpc" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+# Dead Letter Queue : la Lambda doit pouvoir y deposer les evenements en echec.
+resource "aws_iam_role_policy" "lambda_dlq" {
+  name = "${var.project_name}-lambda-dlq"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "sqs:SendMessage"
+      Resource = aws_sqs_queue.app_events_dlq.arn
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 # Lambda function (Python example)
 resource "aws_lambda_function" "health_check" {
   function_name = "${var.project_name}-health-check-${var.environment}"
@@ -33,7 +77,30 @@ resource "aws_lambda_function" "health_check" {
   runtime       = "python3.12"
   timeout       = 10
 
-  filename         = data.archive_file.lambda_health_check.output_path
+  # Limite de concurrence : evite qu'une boucle d'appels sature le compte.
+  reserved_concurrent_executions = 10
+  # Chiffrement des variables d'environnement avec la CMK du projet.
+  kms_key_arn = aws_kms_key.platform.arn
+
+  tracing_config {
+    mode = "Active"
+  }
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.app_events_dlq.arn
+  }
+
+  vpc_config {
+    subnet_ids         = aws_subnet.private[*].id
+    security_group_ids = [aws_security_group.lambda.id]
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_vpc,
+    aws_iam_role_policy.lambda_dlq,
+  ]
+
+  filename        = data.archive_file.lambda_health_check.output_path
   source_code_hash = data.archive_file.lambda_health_check.output_base64sha256
 
   environment {
@@ -82,6 +149,8 @@ resource "aws_apigatewayv2_integration" "lambda_integration" {
 resource "aws_apigatewayv2_route" "health_route" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "GET /health"
+  # Acces authentifie (SigV4) : aucune route publique anonyme.
+  authorization_type = "AWS_IAM"
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
@@ -108,7 +177,8 @@ resource "aws_apigatewayv2_stage" "default" {
 
 resource "aws_cloudwatch_log_group" "apigw_access" {
   name              = "/${var.project_name}/apigw-access-${var.environment}"
-  retention_in_days = 14
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.platform.arn
 }
 
 resource "aws_lambda_permission" "api_gateway" {
@@ -153,9 +223,56 @@ resource "aws_iam_role_policy" "step_functions_policy" {
   })
 }
 
+resource "aws_cloudwatch_log_group" "sfn" {
+  name              = "/${var.project_name}/sfn-${var.environment}"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.platform.arn
+}
+
+# Journalisation et tracing X-Ray (les API de livraison de logs n'acceptent que "*").
+resource "aws_iam_role_policy" "step_functions_observability" {
+  name = "${var.project_name}-stepfunctions-observability-${var.environment}"
+  role = aws_iam_role.step_functions_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogDelivery",
+          "logs:GetLogDelivery",
+          "logs:UpdateLogDelivery",
+          "logs:DeleteLogDelivery",
+          "logs:ListLogDeliveries",
+          "logs:PutResourcePolicy",
+          "logs:DescribeResourcePolicies",
+          "logs:DescribeLogGroups"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_sfn_state_machine" "health_workflow" {
   name     = "${var.project_name}-health-workflow-${var.environment}"
   role_arn = aws_iam_role.step_functions_role.arn
+
+  logging_configuration {
+    log_destination        = "${aws_cloudwatch_log_group.sfn.arn}:*"
+    include_execution_data = true
+    level                  = "ALL"
+  }
+
+  tracing_configuration {
+    enabled = true
+  }
 
   definition = jsonencode({
     Comment = "Simple health check workflow"

@@ -14,6 +14,14 @@ resource "aws_lb" "app" {
   # Rejette les en-têtes HTTP malformés avant de les relayer aux cibles.
   drop_invalid_header_fields = true
 
+  access_logs {
+    bucket  = aws_s3_bucket.logs.id
+    prefix  = "alb"
+    enabled = true
+  }
+
+  depends_on = [aws_s3_bucket_policy.logs]
+
   tags = {
     Name = "${var.project_name}-alb"
   }
@@ -41,14 +49,49 @@ resource "aws_lb_target_group_attachment" "app" {
   port             = 80
 }
 
+# Listener HTTPS (TLS 1.3 / 1.2) : cree uniquement si un certificat ACM est fourni.
+resource "aws_lb_listener" "https" {
+  count             = var.acm_certificate_arn != "" ? 1 : 0
+  load_balancer_arn = aws_lb.app.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = var.acm_certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# Avec un certificat : HTTP redirige vers HTTPS. Sans certificat (lab) : HTTP
+# transmet directement a la cible.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.app.arn
   port              = "80"
   protocol          = "HTTP"
 
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.app.arn
+  dynamic "default_action" {
+    for_each = var.acm_certificate_arn != "" ? [1] : []
+
+    content {
+      type = "redirect"
+
+      redirect {
+        port        = "443"
+        protocol    = "HTTPS"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = var.acm_certificate_arn == "" ? [1] : []
+
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.app.arn
+    }
   }
 }
 
@@ -59,6 +102,9 @@ resource "aws_lb" "nlb" {
   internal           = true
   load_balancer_type = "network"
   subnets            = aws_subnet.private[*].id
+
+  enable_cross_zone_load_balancing = true
+  enable_deletion_protection       = var.environment == "prod"
 
   tags = {
     Name = "${var.project_name}-nlb"
@@ -114,7 +160,8 @@ resource "aws_ecs_task_definition" "app" {
 
 resource "aws_cloudwatch_log_group" "ecs_logs" {
   name              = "/${var.project_name}/ecs-${var.environment}"
-  retention_in_days = 14
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.platform.arn
 }
 
 resource "aws_iam_role" "ecs_exec" {
@@ -156,6 +203,15 @@ resource "aws_eks_cluster" "main" {
     subnet_ids              = aws_subnet.private[*].id
     endpoint_private_access = true
     endpoint_public_access  = false
+  }
+
+  # Chiffrement des Secrets Kubernetes dans etcd avec la CMK du projet.
+  encryption_config {
+    resources = ["secrets"]
+
+    provider {
+      key_arn = aws_kms_key.platform.arn
+    }
   }
 
   enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]

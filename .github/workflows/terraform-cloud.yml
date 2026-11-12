@@ -59,6 +59,8 @@ jobs:
         uses: bridgecrewio/checkov-action@v12.3126.0
         with:
           directory: infrastructure/aws
+          # Exceptions justifiees : infrastructure/aws/.checkov.yaml
+          config_file: infrastructure/aws/.checkov.yaml
           framework: terraform
           soft_fail: false
           output_format: cli

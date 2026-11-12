@@ -1,0 +1,64 @@
+name: Shinra Defense — Qualité & Sécurité
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'platform/shinra/**'
+      - '.github/workflows/shinra.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'platform/shinra/**'
+      - '.github/workflows/shinra.yml'
+
+permissions:
+  contents: read
+
+env:
+  SHINRA_DIR: platform/shinra
+
+jobs:
+  engine:
+    name: Moteur Python (syntaxe + Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Pas d'installation de requirements.txt : chromadb et sentence-transformers
+      # tirent PyTorch (plusieurs Go) pour une simple vérification statique.
+      - name: Compilation (syntaxe)
+        run: python -m compileall -q ${{ env.SHINRA_DIR }}/src-engine
+
+      - name: Bandit (échec sur sévérité moyenne ou supérieure)
+        run: |
+          pip install bandit==1.7.10
+          bandit -r ${{ env.SHINRA_DIR }}/src-engine -ll
+
+  scripts:
+    name: Scripts shell et playbooks YAML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: ShellCheck (ShellCheck est préinstallé sur ubuntu-latest)
+        run: shellcheck --severity=warning ${{ env.SHINRA_DIR }}/scripts/*.sh
+
+      - name: Validation YAML des playbooks
+        run: |
+          pip install pyyaml
+          python - <<'PY'
+          import glob, yaml
+          for f in sorted(glob.glob("platform/shinra/playbooks/*.yml")):
+              doc = yaml.safe_load(open(f, encoding="utf-8"))
+              missing = {"name", "triggers", "actions"} - set(doc)
+              assert not missing, f"{f}: clés manquantes {missing}"
+              print("ok", f)
+          PY

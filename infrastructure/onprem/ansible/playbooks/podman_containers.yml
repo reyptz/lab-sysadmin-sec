@@ -14,11 +14,12 @@
     # --- Installation ---
     - name: Ensure Podman and dependencies are installed
       package:
+        # Paquets RHEL : newuidmap/newgidmap sont fournis par shadow-utils
+        # ("uidmap" est le nom Debian) et podman-compose n'existe que dans EPEL.
         name:
           - podman
-          - podman-compose
           - slirp4netns
-          - uidmap
+          - shadow-utils
           - buildah
           - skopeo
         state: present
@@ -33,6 +34,17 @@
       ansible.builtin.command: loginctl enable-linger {{ container_user }}
       args:
         creates: "/var/lib/systemd/linger/{{ container_user }}"
+
+    # systemctl --user et podman rootless ont besoin de XDG_RUNTIME_DIR, qui
+    # n'est pas défini lors d'un become_user (pas de session PAM/logind).
+    - name: Get container user UID
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ container_user }}"
+
+    - name: Set rootless runtime directory
+      ansible.builtin.set_fact:
+        container_xdg_runtime_dir: "/run/user/{{ ansible_facts.getent_passwd[container_user][1] }}"
 
     # --- Volume management (RHCSA objective) ---
     - name: Create persistent volume directory
@@ -54,13 +66,18 @@
     # --- Container image management ---
     - name: Pull the container image
       become_user: "{{ container_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ container_xdg_runtime_dir }}"
       containers.podman.podman_image:
         name: "{{ container_image }}"
         state: present
 
     - name: List local images
       become_user: "{{ container_user }}"
-      ansible.builtin.command: podman images --format "table {{.Repository}} {{.Tag}} {{.Size}}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ container_xdg_runtime_dir }}"
+      # {% raw %} : sans lui, Jinja2 tente d'interpréter le template Go de podman.
+      ansible.builtin.command: podman images --format "table {% raw %}{{.Repository}} {{.Tag}} {{.Size}}{% endraw %}"
       register: podman_images
       changed_when: false
 
@@ -71,6 +88,8 @@
     # --- Run container with volume (RHCSA objective) ---
     - name: Create and run container with persistent volume
       become_user: "{{ container_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ container_xdg_runtime_dir }}"
       containers.podman.podman_container:
         name: "{{ container_name }}"
         image: "{{ container_image }}"
@@ -80,13 +99,15 @@
         volumes:
           - "{{ volume_path }}:/var/www/html:Z"
         generate_systemd:
-          path: "~/.config/systemd/user/"
+          path: "/home/{{ container_user }}/.config/systemd/user/"
           new: true
           restart_policy: always
 
     # --- systemd user service (RHCSA objective) ---
     - name: Enable container systemd service
       become_user: "{{ container_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ container_xdg_runtime_dir }}"
       ansible.builtin.systemd:
         name: "container-{{ container_name }}"
         scope: user
@@ -97,7 +118,9 @@
     # --- Inspect and verify ---
     - name: Show running containers
       become_user: "{{ container_user }}"
-      ansible.builtin.command: podman ps --format "table {{.Names}} {{.Status}} {{.Ports}}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ container_xdg_runtime_dir }}"
+      ansible.builtin.command: podman ps --format "table {% raw %}{{.Names}} {{.Status}} {{.Ports}}{% endraw %}"
       register: podman_ps
       changed_when: false
 
@@ -108,6 +131,8 @@
 
     - name: Inspect container mounts
       become_user: "{{ container_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ container_xdg_runtime_dir }}"
       ansible.builtin.command: podman inspect {{ container_name }} --format "{{ '{{' }} range .Mounts {{ '}}' }}{{ '{{' }}.Source{{ '}}' }} -> {{ '{{' }}.Destination{{ '}}' }} {{ '{{' }}end{{ '}}' }}"
       register: mounts
       changed_when: false
@@ -121,6 +146,8 @@
     # --- Container logs (RHCSA objective) ---
     - name: Show container logs
       become_user: "{{ container_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "{{ container_xdg_runtime_dir }}"
       ansible.builtin.command: podman logs --tail 5 {{ container_name }}
       register: container_logs
       changed_when: false

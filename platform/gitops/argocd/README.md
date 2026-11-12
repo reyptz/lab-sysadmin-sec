@@ -6,7 +6,9 @@ Ce dossier contient la configuration GitOps pour déployer l'ERP/CRM via ArgoCD.
 
 - Le dépôt Git est la **source de vérité**.
 - ArgoCD surveille les manifests et applique automatiquement les changements.
-- Le CI/CD met à jour le tag d'image dans les manifests GitOps après un build réussi.
+- Le CI/CD met à jour le tag d'image (`images.newTag`) de l'overlay `dev` après un build réussi sur `main`.
+- La promotion vers `staging` et `prod` se fait en reportant ce tag dans l'overlay correspondant, par pull request.
+- `erp-prod` (Deployment) et `erp-prod-canary` (Argo Rollouts + Istio) ciblent le même namespace : ce sont deux alternatives, à ne pas activer simultanément.
 
 ## Structure
 
@@ -31,8 +33,7 @@ platform/gitops/argocd/
 ## Déploiement
 
 ```bash
-# Installer ArgoCD
-cd platform/devsecops
+# Installer ArgoCD (depuis la racine du dépôt)
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 

@@ -91,7 +91,8 @@ lab-sysadmin-sec/
 │   ├── aws/            # Module Terraform AWS
 │   └── onprem/
 │       └── ansible/    # Playbooks RHCSA et hardening
-│           ├── config/   # ansible.cfg et collections
+│           ├── ansible.cfg      # Configuration Ansible
+│           ├── requirements.yml # Collections Ansible Galaxy
 │           ├── inventory/# Inventaire Ansible
 │           ├── playbooks/# Playbooks RHCSA et hardening
 │           └── site.yml  # Playbook principal
@@ -109,6 +110,7 @@ lab-sysadmin-sec/
 │   │       ├── kubernetes/ # Kyverno, Gatekeeper
 │   │       └── scan/     # Trivy
 │   ├── gitops/        # ArgoCD
+│   ├── shinra/        # Défense active : agent eBPF, moteur, UI, playbooks
 │   ├── monitoring/    # Docker Compose Prometheus/Grafana
 │   └── sre/           # SLO/SLI, dashboards, runbooks
 │       ├── dashboards/ # Dashboards Grafana
@@ -117,7 +119,7 @@ lab-sysadmin-sec/
 ├── security/          # Hardening RHEL
 │   └── ossec/         # HIDS configuration
 ├── scripts/           # Scripts d'automatisation (Bash)
-├── tests/             # Tests de validation
+├── Tests.md           # Procédures de validation
 ├── Makefile           # Commandes de gestion du lab
 ├── .gitignore
 └── README.md
@@ -159,6 +161,8 @@ docker compose -f platform/monitoring/docker-compose.yml up -d
 
 ```bash
 cd infrastructure/onprem/ansible
+ansible-galaxy collection install -r requirements.yml
+export RHEL_CONTROL_HOST=<ip> RHEL_MANAGED_HOST=<ip> RHEL_ADMIN_USER=<user> ANSIBLE_PRIVATE_KEY_FILE=<chemin de la clé>
 ansible-playbook -i inventory/inventory.yml site.yml
 ```
 
@@ -192,6 +196,7 @@ Les playbooks suivants couvrent les topics RHCSA pour l'infrastructure on-premis
 | **Multi-tenant Kubernetes** | `platform/cloudnative/k8s/tenancy/` |
 | **Secrets management** | `platform/cloudnative/k8s/secrets/` (ESO / Vault) |
 | **SRE / SLI / SLO** | `platform/sre/` |
+| **Défense active / honeypots (eBPF)** | `platform/shinra/` |
 
 ---
 

@@ -2,8 +2,10 @@
 package_update: true
 package_upgrade: true
 
+# fail2ban n'est pas dans les dépôts RHEL (EPEL) : le lister ici ferait échouer
+# toute la transaction dnf, donc aussi firewalld/chrony/audit. Il est installé
+# séparément dans runcmd.
 packages:
-  - fail2ban
   - firewalld
   - chrony
   - dnf-automatic
@@ -44,7 +46,8 @@ runcmd:
   - firewall-cmd --add-service=ssh --permanent
   - firewall-cmd --reload
   # Fail2ban : protection brute force SSH
-  - systemctl enable --now fail2ban
+  - dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+  - dnf install -y fail2ban && systemctl enable --now fail2ban
   # Time sync (NTP)
   - systemctl enable --now chronyd
   # Mises a jour automatiques de securite

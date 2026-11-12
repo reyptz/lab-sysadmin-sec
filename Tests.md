@@ -1,6 +1,6 @@
 # Tests du Lab
 
-Ce dossier centralise les tests de validation du projet.
+Ce document centralise les tests de validation du projet.
 
 ## Types de tests prévus
 
@@ -12,13 +12,20 @@ Ce dossier centralise les tests de validation du projet.
 ## Exemple de validation manuelle
 
 ```bash
-# Terraform AWS
-cd infrastructure/aws
-terraform init -backend=false
-terraform validate
+# Toutes les commandes se lancent depuis la racine du dépôt.
 
-# Ansible
-ansible-playbook -i infrastructure/onprem/ansible/inventory/inventory.yml --syntax-check infrastructure/onprem/ansible/site.yml
+# Terraform AWS
+(cd infrastructure/aws && terraform fmt -check && terraform init -backend=false && terraform validate)
+
+# Ansible (depuis le dossier qui contient ansible.cfg)
+(cd infrastructure/onprem/ansible && ansible-galaxy collection install -r requirements.yml \
+  && ansible-playbook -i inventory/inventory.yml --syntax-check site.yml)
+
+# Application Node.js
+(cd platform/cloudnative/app && npm ci --ignore-scripts && npm run lint && npm test)
+
+# Overlays Kustomize (GitOps)
+kubectl kustomize platform/gitops/argocd/apps/erp/overlays/prod-canary
 ```
 
 > Sous Windows, utiliser Git Bash, WSL ou exécuter les commandes depuis un environnement Linux.

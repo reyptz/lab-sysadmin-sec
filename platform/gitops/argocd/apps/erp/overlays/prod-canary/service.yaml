@@ -1,0 +1,31 @@
+# Services requis par le Rollout canary : Argo Rollouts réécrit leurs sélecteurs
+# (rollouts-pod-template-hash) pour router vers le ReplicaSet stable ou canary.
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-app
+  labels:
+    app: erp-app
+spec:
+  type: ClusterIP
+  selector:
+    app: erp-app
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erp-app-canary
+  labels:
+    app: erp-app
+spec:
+  type: ClusterIP
+  selector:
+    app: erp-app
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: http

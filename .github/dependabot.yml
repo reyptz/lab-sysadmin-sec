@@ -16,3 +16,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  - package-ecosystem: pip
+    directory: /platform/shinra/src-engine
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /platform/shinra/src-agent
+    schedule:
+      interval: weekly

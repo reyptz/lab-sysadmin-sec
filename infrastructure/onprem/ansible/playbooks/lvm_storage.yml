@@ -43,11 +43,13 @@
         size: "50%VG"
         state: present
 
-    - name: Create logical volume for logs (remaining space)
+    # 30%VG (et non 100%FREE) : idempotent, et laisse de l'espace libre dans le VG
+    # pour le snapshot LVM créé plus bas.
+    - name: Create logical volume for logs (30% of VG)
       community.general.lvol:
         vg: "{{ vg_name }}"
         lv: "{{ lv_logs_name }}"
-        size: "100%FREE"
+        size: "30%VG"
         state: present
 
     - name: Create ext4 filesystem on lv_app
@@ -100,11 +102,13 @@
         state: present
       when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
 
-    - name: Extend lv_app by 500M
+    # Taille cible absolue plutôt que "+500M" : un "+" ré-étend le LV à chaque
+    # exécution du playbook (non idempotent).
+    - name: Extend lv_app to 60% of the (extended) VG
       community.general.lvol:
         vg: "{{ vg_name }}"
         lv: "{{ lv_name }}"
-        size: "+500M"
+        size: "60%VG"
         resizefs: yes
         state: present
       when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
@@ -135,16 +139,21 @@
         state: present
       when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
 
+    # Le module filesystem ne formate que si le LV n'a pas déjà de signature swap
+    # (un "creates:" sur le device ne fonctionnait pas : le LV existe déjà).
     - name: Format swap
-      ansible.builtin.command: mkswap /dev/{{ vg_name }}/lv_swap
-      args:
-        creates: "/dev/{{ vg_name }}/lv_swap"
+      community.general.filesystem:
+        fstype: swap
+        dev: "/dev/{{ vg_name }}/lv_swap"
       when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
 
     - name: Activate swap
-      ansible.builtin.command: swapon /dev/{{ vg_name }}/lv_swap
+      ansible.builtin.shell: |
+        swapon --show=NAME --noheadings | grep -q "$(readlink -f /dev/{{ vg_name }}/lv_swap)" && exit 0
+        swapon /dev/{{ vg_name }}/lv_swap && echo activated
+      register: swapon_out
+      changed_when: "'activated' in swapon_out.stdout"
       when: ansible_devices[extend_disk | regex_replace('/dev/', '')] is defined
-      ignore_errors: yes
 
     - name: Add swap to fstab
       mount:

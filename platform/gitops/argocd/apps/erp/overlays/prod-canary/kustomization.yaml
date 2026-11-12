@@ -3,11 +3,15 @@ kind: Kustomization
 
 namespace: erp-prod
 
+# Kustomize refuse de charger un fichier situé hors du dossier de l'overlay
+# (../../base/service.yaml) : les Services stable/canary sont donc définis ici.
 resources:
-  - ../../base/service.yaml
+  - service.yaml
+  - virtualservice.yaml
   - analysis-template.yaml
   - rollout.yaml
 
 images:
   - name: erp-app
+    newName: ghcr.io/reyptz/lab-sysadmin-sec/erp-app
     newTag: prod-1.0.0

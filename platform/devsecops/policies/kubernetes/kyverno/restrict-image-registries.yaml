@@ -16,4 +16,5 @@ spec:
         pattern:
           spec:
             containers:
-              - image: "ghcr.io/myorg/* | docker.io/library/* | gcr.io/myorg/*"
+              # ghcr.io/reyptz : registre des images du projet (voir CI/CD et GitOps).
+              - image: "ghcr.io/reyptz/* | docker.io/library/* | registry.access.redhat.com/*"

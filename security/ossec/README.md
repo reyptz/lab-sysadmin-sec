@@ -1,20 +1,15 @@
 # OSSEC HIDS
 
-Configuration et scripts de déploiement pour OSSEC.
+Configuration d'agent OSSEC.
 
 ## Fichiers
 
-- `ossec.conf` — Configuration d'agent OSSEC.
-- `windows_hardening.ps1` — Script de durcissement Windows Server.
+- `ossec.conf` — Configuration d'agent OSSEC (journaux Debian et RHEL).
 
 ## Déploiement
 
 ```bash
-# Linux
-sudo apt-get install ossec-hids-agent
+# Linux (agent OSSEC déjà installé)
 sudo cp security/ossec/ossec.conf /var/ossec/etc/
 sudo systemctl restart ossec
-
-# Windows (PowerShell admin)
-.\security\ossec\windows_hardening.ps1
 ```

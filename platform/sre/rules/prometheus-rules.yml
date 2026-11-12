@@ -8,6 +8,20 @@ groups:
           /
           sum(rate(app_http_requests_total{route="/invoices"}[30d]))
 
+      # SLI sur fenêtres courtes : requis par les règles de burn rate ci-dessous
+      # (sans eux, les alertes FastBurn/SlowBurn ne se déclenchent jamais).
+      - record: sli:api_invoices_availability:ratio_rate2h
+        expr: |
+          sum(rate(app_http_requests_total{route="/invoices",status!~"5.."}[2h]))
+          /
+          sum(rate(app_http_requests_total{route="/invoices"}[2h]))
+
+      - record: sli:api_invoices_availability:ratio_rate6h
+        expr: |
+          sum(rate(app_http_requests_total{route="/invoices",status!~"5.."}[6h]))
+          /
+          sum(rate(app_http_requests_total{route="/invoices"}[6h]))
+
       - record: sli:api_invoices_latency_p95:ratio_rate30d
         expr: |
           histogram_quantile(0.95,

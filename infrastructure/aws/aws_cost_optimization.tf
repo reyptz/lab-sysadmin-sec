@@ -14,25 +14,25 @@ resource "aws_budgets_budget" "monthly" {
 
   cost_filter {
     name = "TagKeyValue"
+    # Format attendu par l'API Budgets : user:<clé>$<valeur>. format() évite
+    # toute ambiguïté d'échappement du "$" dans un template HCL.
     values = [
-      "user:Project$$${var.project_name}",
+      format("user:Project$%s", var.project_name),
     ]
   }
 
-  notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 80
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "ACTUAL"
-    subscriber_email_addresses = var.budget_alert_emails
-  }
+  # L'API Budgets refuse une notification sans abonné : on ne les crée que si
+  # au moins un e-mail est fourni.
+  dynamic "notification" {
+    for_each = length(var.budget_alert_emails) > 0 ? [80, 100] : []
 
-  notification {
-    comparison_operator        = "GREATER_THAN"
-    threshold                  = 100
-    threshold_type             = "PERCENTAGE"
-    notification_type          = "ACTUAL"
-    subscriber_email_addresses = var.budget_alert_emails
+    content {
+      comparison_operator        = "GREATER_THAN"
+      threshold                  = notification.value
+      threshold_type             = "PERCENTAGE"
+      notification_type          = "ACTUAL"
+      subscriber_email_addresses = var.budget_alert_emails
+    }
   }
 }
 

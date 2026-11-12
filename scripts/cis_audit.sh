@@ -40,17 +40,24 @@ check "1.1.1.1" "Disable cramfs" "grep -q 'install cramfs /bin/true' /etc/modpro
 # 1.4.1 Ensure filesystem permissions are governed by systemd tmpfiles
 check "1.4.1" "systemd tmpfiles" "test -d /etc/tmpfiles.d"
 
-# 5.2.1 Ensure permissions on /etc/ssh/sshd_config are 644
-check "5.2.1" "sshd_config permissions" "stat -c '%a' /etc/ssh/sshd_config | grep -q '^644$'"
+# Configuration SSH effective (sshd_config + drop-ins sshd_config.d), valeurs
+# par défaut comprises : un grep sur sshd_config seul ignore les drop-ins.
+sshd_effective() {
+    sshd -T 2>/dev/null
+}
 
-# 5.2.4 Ensure SSH Protocol is 2
-check "5.2.4" "SSH Protocol 2" "grep -q '^Protocol 2' /etc/ssh/sshd_config"
+# 5.2.1 Ensure permissions on /etc/ssh/sshd_config are 600
+check "5.2.1" "sshd_config permissions" "stat -c '%a' /etc/ssh/sshd_config | grep -q '^600$'"
+
+# 5.2.4 Ensure SSH root login is disabled
+# (l'ancien contrôle 'Protocol 2' est obsolète : OpenSSH >= 7.4 ne supporte que le protocole 2)
+check "5.2.4" "SSH root login disabled" "sshd_effective | grep -qi '^permitrootlogin no$'"
 
 # 5.2.5 Ensure SSH LogLevel is appropriate
-check "5.2.5" "SSH LogLevel" "grep -qE '^LogLevel (INFO|VERBOSE)' /etc/ssh/sshd_config"
+check "5.2.5" "SSH LogLevel" "sshd_effective | grep -qiE '^loglevel (INFO|VERBOSE)$'"
 
 # 5.2.12 Ensure SSH idle timeout is configured
-check "5.2.12" "SSH idle timeout" "grep -qE '^ClientAliveInterval' /etc/ssh/sshd_config"
+check "5.2.12" "SSH idle timeout" "sshd_effective | grep -qiE '^clientaliveinterval [1-9][0-9]*$'"
 
 # 5.4.1 Ensure password creation requirements are configured
 check "5.4.1" "Password requirements" "test -f /etc/security/pwquality.conf"

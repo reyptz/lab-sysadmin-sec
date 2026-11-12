@@ -1,0 +1,36 @@
+# Configuration Checkov du module AWS, utilisee par la CI (config_file) et par
+# `make checkov`. Chaque exception ci-dessous est un ecart assume pour un lab,
+# avec la condition pour la lever en production.
+framework:
+  - terraform
+soft-fail: false
+compact: true
+
+skip-check:
+  # --- Exposition publique voulue : point d'entree web du lab -------------
+  - CKV_AWS_260  # ALB : port 80 ouvert pour la redirection HTTP -> HTTPS
+  - CKV_AWS_88   # Bastion : IP publique voulue (SSH restreint par CIDR) ; passer en SSM-only pour la lever
+  - CKV2_AWS_20  # Redirection HTTP -> HTTPS : active si acm_certificate_arn est fourni (dynamic block non evaluable par Checkov)
+  - CKV_AWS_103  # Idem : TLS 1.2+ applique par le listener HTTPS si un certificat est fourni
+  - CKV_AWS_378  # Target group en HTTP : TLS termine a l'ALB, trafic interne au VPC
+  # --- CloudFront / Route53 : crees uniquement si domain_name est fourni ---
+  - CKV2_AWS_32  # Response headers policy
+  - CKV2_AWS_42  # Certificat ACM personnalise (necessite un domaine)
+  - CKV_AWS_174  # TLS minimal du viewer (necessite le certificat ACM ci-dessus)
+  - CKV_AWS_305  # Default root object (origine = ALB, pas un site statique)
+  - CKV_AWS_310  # Origin failover (une seule origine dans le lab)
+  - CKV_AWS_374  # Geo-restriction
+  - CKV_AWS_86   # Access logging CloudFront
+  - CKV_AWS_68   # WAF sur CloudFront (scope CLOUDFRONT = us-east-1, hors module)
+  - CKV2_AWS_47  # Regles Log4j sur le WAF CloudFront
+  - CKV2_AWS_38  # DNSSEC Route53 (cle KMS us-east-1 requise)
+  - CKV2_AWS_39  # Query logging Route53 (log group us-east-1 requis)
+  # --- Services optionnels / couts disproportionnes pour un lab -----------
+  - CKV2_AWS_76  # Regles Log4j sur le WAF de l'ALB (WAF optionnel : enable_waf)
+  - CKV2_AWS_3   # GuardDuty au niveau Organization (necessite organization_id)
+  - CKV_AWS_144  # Replication S3 inter-regions (double le cout de stockage)
+  - CKV2_AWS_62  # Notifications d'evenements S3 (aucun consommateur)
+  - CKV_AWS_91   # Access logs du NLB (exige un listener TLS ; NLB interne de demo)
+  - CKV_AWS_272  # Code signing Lambda (necessite un profil AWS Signer)
+  # --- Charge de demonstration ---------------------------------------------
+  - CKV_AWS_336  # ECS : nginx:alpine ecrit dans /var/cache ; a lever avec une image applicative en lecture seule

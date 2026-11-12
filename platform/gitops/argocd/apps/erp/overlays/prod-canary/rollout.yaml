@@ -12,8 +12,6 @@ spec:
       stableService: erp-app
       trafficRouting:
         # Exemple avec Istio ; adapter selon le service mesh en place
-        managedRoutes:
-          - name: erp-app
         istio:
           virtualService:
             name: erp-app

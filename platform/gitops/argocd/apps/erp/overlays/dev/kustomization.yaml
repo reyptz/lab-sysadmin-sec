@@ -10,6 +10,8 @@ replicas:
   - name: erp-app
     count: 1
 
+# Le tag est mis à jour automatiquement par la CI (job deploy) après chaque
+# build réussi sur main. La promotion vers staging/prod se fait par PR.
 images:
   - name: erp-app
     newTag: dev-1.0.0

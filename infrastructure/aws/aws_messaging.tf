@@ -100,15 +100,16 @@ resource "aws_sns_topic_subscription" "email" {
   endpoint  = var.alert_emails[count.index]
 }
 
-# EventBridge bus + rule
+# EventBridge : bus personnalisé pour les événements applicatifs.
 resource "aws_cloudwatch_event_bus" "custom" {
   name = "${var.project_name}-bus-${var.environment}"
 }
 
+# Les événements des services AWS (aws.ec2, ...) ne sont publiés que sur le bus
+# "default" : une règle posée sur un bus personnalisé ne se déclencherait jamais.
 resource "aws_cloudwatch_event_rule" "ec2_state_change" {
-  name           = "${var.project_name}-ec2-state-change-${var.environment}"
-  description    = "Capture EC2 state changes"
-  event_bus_name = aws_cloudwatch_event_bus.custom.name
+  name        = "${var.project_name}-ec2-state-change-${var.environment}"
+  description = "Capture EC2 state changes"
 
   event_pattern = jsonencode({
     source      = ["aws.ec2"]
@@ -117,9 +118,8 @@ resource "aws_cloudwatch_event_rule" "ec2_state_change" {
 }
 
 resource "aws_cloudwatch_event_target" "sns" {
-  rule           = aws_cloudwatch_event_rule.ec2_state_change.name
-  event_bus_name = aws_cloudwatch_event_bus.custom.name
-  arn            = aws_sns_topic.alerts.arn
+  rule = aws_cloudwatch_event_rule.ec2_state_change.name
+  arn  = aws_sns_topic.alerts.arn
 }
 
 # Kinesis Data Stream
@@ -128,6 +128,17 @@ resource "aws_kms_key" "kinesis" {
   description             = "KMS key for Kinesis log stream"
   deletion_window_in_days = 7
   enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AccountKeyAdministration"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "kms:*"
+      Resource  = "*"
+    }]
+  })
 }
 
 resource "aws_kinesis_stream" "logs" {
@@ -180,10 +191,17 @@ resource "aws_iam_role_policy" "firehose_s3" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["s3:PutObject", "s3:PutObjectAcl"]
-      Resource = "${aws_s3_bucket.backups.arn}/logs/*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"]
+        Resource = aws_s3_bucket.backups.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:AbortMultipartUpload"]
+        Resource = "${aws_s3_bucket.backups.arn}/logs/*"
+      }
+    ]
   })
 }

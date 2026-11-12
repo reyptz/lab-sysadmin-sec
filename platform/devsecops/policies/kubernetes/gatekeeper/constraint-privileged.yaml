@@ -3,6 +3,8 @@ kind: K8sPSPPrivileged
 metadata:
   name: psp-privileged-container
 spec:
+  # enforcementAction est un champ de spec (et non un paramètre du template).
+  enforcementAction: deny
   match:
     kinds:
       - apiGroups: [""]
@@ -10,5 +12,3 @@ spec:
     excludedNamespaces:
       - kube-system
       - gatekeeper-system
-  parameters:
-    enforcementAction: deny

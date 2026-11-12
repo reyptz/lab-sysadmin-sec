@@ -19,13 +19,30 @@
           X11Forwarding no
           MaxAuthTries 3
           ClientAliveInterval 300
-          ClientAliveCountMax 0
+          ClientAliveCountMax 3
       notify: restart sshd
+
+    # fail2ban provient d'EPEL (absent des dépôts RHEL).
+    - name: Importer la cle GPG EPEL
+      ansible.builtin.rpm_key:
+        key: "https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-{{ ansible_distribution_major_version }}"
+        state: present
+
+    - name: Activer le depot EPEL
+      dnf:
+        name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm"
+        state: present
 
     - name: Installation Fail2Ban
       dnf:
         name: fail2ban
         state: present
+
+    - name: Demarrer et activer Fail2Ban
+      service:
+        name: fail2ban
+        state: started
+        enabled: yes
 
   handlers:
     - name: restart sshd

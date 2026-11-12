@@ -19,7 +19,7 @@ resource "aws_config_delivery_channel" "main" {
   count          = var.enable_config ? 1 : 0
   name           = "${var.project_name}-config-delivery-${var.environment}"
   s3_bucket_name = aws_s3_bucket.config[0].bucket
-  depends_on     = [aws_config_configuration_recorder.main[0]]
+  depends_on     = [aws_config_configuration_recorder.main[0], aws_s3_bucket_policy.config[0]]
 }
 
 resource "aws_config_configuration_recorder_status" "main" {
@@ -32,6 +32,111 @@ resource "aws_config_configuration_recorder_status" "main" {
 resource "aws_s3_bucket" "config" {
   count  = var.enable_config ? 1 : 0
   bucket = "${var.project_name}-config-${var.environment}-${random_id.bucket_suffix.hex}"
+}
+
+resource "aws_s3_bucket_logging" "config" {
+  count         = var.enable_config ? 1 : 0
+  bucket        = aws_s3_bucket.config[0].id
+  target_bucket = aws_s3_bucket.logs.id
+  target_prefix = "s3/config/"
+
+  depends_on = [aws_s3_bucket_policy.logs]
+}
+
+resource "aws_s3_bucket_versioning" "config" {
+  count  = var.enable_config ? 1 : 0
+  bucket = aws_s3_bucket.config[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "config" {
+  count  = var.enable_config ? 1 : 0
+  bucket = aws_s3_bucket.config[0].id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.platform.arn
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "config" {
+  count  = var.enable_config ? 1 : 0
+  bucket = aws_s3_bucket.config[0].id
+
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "config" {
+  count  = var.enable_config ? 1 : 0
+  bucket = aws_s3_bucket.config[0].id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Sans cette policy, AWS Config ne peut pas écrire dans le bucket et le
+# delivery channel échoue à la création (InsufficientDeliveryPolicyException).
+resource "aws_s3_bucket_policy" "config" {
+  count  = var.enable_config ? 1 : 0
+  bucket = aws_s3_bucket.config[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AWSConfigBucketPermissionsCheck"
+        Effect    = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action    = ["s3:GetBucketAcl", "s3:ListBucket"]
+        Resource  = aws_s3_bucket.config[0].arn
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+        }
+      },
+      {
+        Sid       = "AWSConfigBucketDelivery"
+        Effect    = "Allow"
+        Principal = { Service = "config.amazonaws.com" }
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.config[0].arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/Config/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl"      = "bucket-owner-full-control"
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      },
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.config[0].arn, "${aws_s3_bucket.config[0].arn}/*"]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      }
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.config]
 }
 
 resource "aws_iam_role" "config" {
@@ -50,7 +155,8 @@ resource "aws_iam_role" "config" {
 resource "aws_iam_role_policy_attachment" "config" {
   count      = var.enable_config ? 1 : 0
   role       = aws_iam_role.config[0].name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSConfigRole"
+  # "AWSConfigRole" a été retirée par AWS ; la policy managée actuelle est AWS_ConfigRole.
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"
 }
 
 # Config Rule: S3 bucket public read prohibited
@@ -127,6 +233,20 @@ resource "aws_wafv2_web_acl" "main" {
     metric_name                = "${var.project_name}-waf-metric"
     sampled_requests_enabled   = true
   }
+}
+
+# Les noms de log group WAF doivent commencer par "aws-waf-logs-".
+resource "aws_cloudwatch_log_group" "waf" {
+  count             = var.enable_waf ? 1 : 0
+  name              = "aws-waf-logs-${var.project_name}-${var.environment}"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.platform.arn
+}
+
+resource "aws_wafv2_web_acl_logging_configuration" "main" {
+  count                   = var.enable_waf ? 1 : 0
+  log_destination_configs = [aws_cloudwatch_log_group.waf[0].arn]
+  resource_arn            = aws_wafv2_web_acl.main[0].arn
 }
 
 resource "aws_wafv2_web_acl_association" "alb" {

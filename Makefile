@@ -1,7 +1,7 @@
 # Makefile du lab Cloud / DevOps / RHEL
 # Sous Windows : utiliser Git Bash, WSL ou installer make via choco.
 
-.PHONY: help monitoring-up monitoring-down ansible-site ansible-lvm ansible-firewalld ansible-podman ansible-cron-acls ansible-boot cloud-validate cloud-plan-aws cloud-plan-aws-sap checkov security-audit sre-check sre-apply policies-kyverno policies-gatekeeper scan-trivy clean
+.PHONY: help monitoring-up monitoring-down ansible-deps ansible-site ansible-lvm ansible-firewalld ansible-podman ansible-cron-acls ansible-boot cloud-validate cloud-plan-aws cloud-plan-aws-sap checkov security-audit sre-check sre-apply policies-kyverno policies-gatekeeper scan-trivy clean
 
 ALLOWED_SSH_CIDR ?= $(shell echo $$ALLOWED_SSH_CIDR)
 
@@ -20,6 +20,9 @@ monitoring-down: ## Arrete la stack monitoring
 # ---------------------------------------------------------------
 # Ansible RHCSA
 # ---------------------------------------------------------------
+ansible-deps: ## Installe les collections Ansible requises
+	cd infrastructure/onprem/ansible && ansible-galaxy collection install -r requirements.yml
+
 ansible-site: ## Lance le playbook Ansible principal
 	cd infrastructure/onprem/ansible && ansible-playbook -i inventory/inventory.yml site.yml
 
@@ -54,7 +57,7 @@ cloud-plan-aws-sap: ## Plan Terraform AWS avec tous les features SAP actives
 # Securite & Qualite
 # ---------------------------------------------------------------
 checkov: ## Scan de securite du module AWS avec Checkov
-	checkov -d infrastructure/aws --framework terraform
+	checkov -d infrastructure/aws --config-file infrastructure/aws/.checkov.yaml
 
 security-audit: ## Lance l'audit CIS local
 	bash scripts/cis_audit.sh
@@ -65,15 +68,19 @@ security-audit: ## Lance l'audit CIS local
 sre-check: ## Verifie les regles Prometheus
 	promtool check rules platform/sre/rules/prometheus-rules.yml
 
+# prometheus-rules.yml est un fichier de regles Prometheus natif (pas un CRD
+# PrometheusRule) : il est publie en ConfigMap, a monter dans rule_files.
 sre-apply: ## Applique les regles Prometheus et le dashboard
-	kubectl apply -f platform/sre/rules/prometheus-rules.yml
+	kubectl create configmap prometheus-rules-invoices --from-file=platform/sre/rules/prometheus-rules.yml -n monitoring --dry-run=client -o yaml | kubectl apply -f -
 	kubectl create configmap grafana-dashboard-invoices --from-file=platform/sre/dashboards/grafana-dashboard.json -n monitoring --dry-run=client -o yaml | kubectl apply -f -
 
 policies-kyverno: ## Applique les policies Kyverno
 	kubectl apply -f platform/devsecops/policies/kubernetes/kyverno/
 
 policies-gatekeeper: ## Applique les templates et constraints Gatekeeper
-	kubectl apply -f platform/devsecops/policies/kubernetes/gatekeeper/
+	kubectl apply -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-template-privileged.yaml -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-template-host-namespace.yaml
+	kubectl wait --for=condition=Established --timeout=60s crd/k8spspprivileged.constraints.gatekeeper.sh crd/k8spsphostnamespace.constraints.gatekeeper.sh
+	kubectl apply -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-privileged.yaml -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-host-namespace.yaml
 
 scan-trivy: ## Scan local avec Trivy (IMAGE=<ref>)
 	trivy image --config platform/devsecops/policies/scan/trivy/trivy-config.yaml $(IMAGE)

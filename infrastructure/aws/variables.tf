@@ -161,3 +161,9 @@ variable "alert_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "acm_certificate_arn" {
+  description = "ARN du certificat ACM pour le listener HTTPS de l'ALB (vide : l'ALB reste en HTTP, acceptable uniquement pour un lab)"
+  type        = string
+  default     = ""
+}

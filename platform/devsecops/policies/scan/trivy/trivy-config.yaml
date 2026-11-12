@@ -1,6 +1,13 @@
+# Configuration Trivy (trivy --config <ce fichier> image <ref>).
+# format, output, severity et exit-code sont des clés de premier niveau.
+format: sarif
+output: trivy-results.sarif
+
 severity:
   - CRITICAL
   - HIGH
+
+exit-code: 1
 
 scan:
   scanners:
@@ -10,9 +17,3 @@ scan:
 
 vulnerability:
   ignore-unfixed: false
-
-report:
-  format: sarif
-  output: trivy-results.sarif
-
-exit-code: 1

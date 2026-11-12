@@ -29,7 +29,10 @@ if [[ $(stat -c '%u' "$USER_FILE") != 0 ]] || (( (8#$(stat -c '%a' "$USER_FILE")
     echo "Le fichier utilisateurs doit appartenir à root et être non modifiable par le groupe/autres."
     exit 1
 fi
-command -v openssl >/dev/null
+if ! command -v openssl >/dev/null; then
+    echo "openssl est requis pour générer les mots de passe initiaux."
+    exit 1
+fi
 
 # Valider toutes les lignes avant de créer le moindre compte.
 while IFS=':' read -r user group role extra || [[ -n "$user" ]]; do
