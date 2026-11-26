@@ -1,0 +1,116 @@
+---
+# PostgreSQL autogéré : sauvegardes pgBackRest et restauration à un instant
+# donné (PITR), pilotées par socle (politiques `postgres` de socle.yaml).
+# L'archivage continu des WAL (archive_command = pgbackrest archive-push)
+# garantit un RPO de l'ordre de la minute ; socle planifie les sauvegardes
+# incrémentales, vérifie l'archivage et mesure le RTO lors des exercices.
+#
+# Actions (socle_pgbackrest_action) :
+#   backup  : contrôle de l'archivage + sauvegarde incrémentale (complète si aucune)
+#   restore : restauration en place (--delta), éventuellement à socle_point_in_time
+#   drill   : restauration dans un répertoire jetable, démarrage d'une instance
+#             temporaire sur un port dédié, requête de contrôle, nettoyage
+- name: "pgBackRest {{ socle_pgbackrest_action }} — {{ socle_stanza }} ({{ socle_environment }})"
+  hosts: all
+  become: true
+  vars:
+    pg_service: postgresql
+    pg_bin: /usr/bin
+    drill_dir: /var/lib/socle/drill/pgdata
+    drill_port: 5499
+
+  pre_tasks:
+    - name: Refuser une exécution sans ciblage explicite (--limit)
+      ansible.builtin.assert:
+        that:
+          - ansible_limit is defined
+          - socle_pgbackrest_action in ['backup', 'restore', 'drill']
+          - socle_stanza is match('^[a-z][a-z0-9-]*$')
+        fail_msg: "paramètres socle invalides"
+
+  tasks:
+    - name: Sauvegarde
+      when: socle_pgbackrest_action == 'backup'
+      become_user: postgres
+      block:
+        - name: Vérifier l'archivage des WAL et le dépôt
+          ansible.builtin.command:
+            argv: [pgbackrest, "--stanza={{ socle_stanza }}", check]
+          changed_when: false
+
+        - name: Sauvegarde incrémentale (complète automatiquement si nécessaire)
+          ansible.builtin.command:
+            argv: [pgbackrest, "--stanza={{ socle_stanza }}", --type=incr, backup]
+
+    - name: Restauration en place
+      when: socle_pgbackrest_action == 'restore'
+      block:
+        - name: Arrêter PostgreSQL
+          ansible.builtin.systemd_service:
+            name: "{{ pg_service }}"
+            state: stopped
+
+        - name: Restaurer (delta, éventuellement à un instant donné)
+          become_user: postgres
+          ansible.builtin.command:
+            argv: >-
+              {{ ['pgbackrest', '--stanza=' ~ socle_stanza, '--delta']
+                 + (['--type=time', '--target=' ~ socle_point_in_time, '--target-action=promote']
+                    if socle_point_in_time | default(none) else [])
+                 + ['restore'] }}
+
+        - name: Redémarrer PostgreSQL
+          ansible.builtin.systemd_service:
+            name: "{{ pg_service }}"
+            state: started
+
+        - name: Attendre que l'instance accepte les connexions
+          become_user: postgres
+          ansible.builtin.command:
+            argv: ["{{ pg_bin }}/pg_isready", --timeout=5]
+          register: ready
+          retries: 60
+          delay: 5
+          until: ready.rc == 0
+          changed_when: false
+
+    - name: Exercice de restauration
+      when: socle_pgbackrest_action == 'drill'
+      become_user: postgres
+      block:
+        - name: Préparer un répertoire jetable
+          ansible.builtin.file:
+            path: "{{ drill_dir }}"
+            state: directory
+            mode: "0700"
+
+        - name: Restaurer la dernière sauvegarde dans le répertoire jetable
+          ansible.builtin.command:
+            argv: [pgbackrest, "--stanza={{ socle_stanza }}", "--pg1-path={{ drill_dir }}", --delta, --archive-mode=off, restore]
+
+        - name: Démarrer une instance temporaire isolée
+          ansible.builtin.command:
+            argv: ["{{ pg_bin }}/pg_ctl", -D, "{{ drill_dir }}", -o, "-p {{ drill_port }} -c listen_addresses=''", -w, -t, "600", start]
+
+        - name: Requête de contrôle
+          ansible.builtin.command:
+            argv: ["{{ pg_bin }}/psql", -p, "{{ drill_port }}", -h, /var/run/postgresql, -At, -c, "SELECT count(*) FROM pg_database"]
+          register: probe
+          changed_when: false
+
+        - name: La base restaurée doit répondre
+          ansible.builtin.assert:
+            that: probe.stdout | int > 0
+      always:
+        - name: Arrêter l'instance temporaire
+          become_user: postgres
+          ansible.builtin.command:
+            argv: ["{{ pg_bin }}/pg_ctl", -D, "{{ drill_dir }}", -m, fast, stop]
+          failed_when: false
+          when: socle_pgbackrest_action == 'drill'
+
+        - name: Supprimer les données de l'exercice
+          ansible.builtin.file:
+            path: "{{ drill_dir }}"
+            state: absent
+          when: socle_pgbackrest_action == 'drill'

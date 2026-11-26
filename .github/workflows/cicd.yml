@@ -4,12 +4,12 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'platform/cloudnative/app/**'
+      - 'apps/erp/**'
       - '.github/workflows/cicd.yml'
   pull_request:
     branches: [main, master]
     paths:
-      - 'platform/cloudnative/app/**'
+      - 'apps/erp/**'
       - '.github/workflows/cicd.yml'
 
 # Moindre privilège par défaut pour GITHUB_TOKEN ; les jobs qui en ont besoin
@@ -18,10 +18,10 @@ permissions:
   contents: read
 
 env:
-  APP_DIR: platform/cloudnative/app
+  APP_DIR: apps/erp
   REGISTRY: ghcr.io
   # Doit correspondre à l'image référencée par les manifests GitOps
-  # (platform/gitops/argocd/apps/erp/base/kustomization.yaml).
+  # (gitops/apps/erp/base/kustomization.yaml).
   IMAGE_NAME: ${{ github.repository }}/erp-app
 
 jobs:
@@ -144,6 +144,20 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
+      - name: Rapport Trivy JSON (preuve transmise à socle)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: 'json'
+          output: 'trivy-report.json'
+
+      - name: Publier le rapport de vulnérabilités
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.json
+          retention-days: 30
+
       - name: Fail on high/critical CVEs
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -153,16 +167,20 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
   # -------------------------------------------------------------------------
-  # Stage 4 : Push vers GitHub Container Registry (main uniquement)
+  # Stage 4 : Push, signature (cosign, sans clé) et SBOM attesté (main)
   # -------------------------------------------------------------------------
   push:
-    name: Push to Registry
+    name: Push, signature et SBOM
     runs-on: ubuntu-latest
     needs: [build, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
+      # Signature sans clé : identité OIDC du workflow (Sigstore).
+      id-token: write
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
     steps:
       - name: Download image artifact
         uses: actions/download-artifact@v4
@@ -202,38 +220,92 @@ jobs:
             docker push "$tag"
           done <<< "$TAGS"
 
+      - name: Digest immuable publié
+        id: digest
+        env:
+          SOURCE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        run: |
+          ref=$(docker inspect --format='{{index .RepoDigests 0}}' "$SOURCE_TAG")
+          echo "digest=${ref#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: SBOM CycloneDX
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
+          format: 'cyclonedx'
+          output: 'sbom.cdx.json'
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Signer l'image et attester le SBOM
+        env:
+          REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
+        run: |
+          cosign sign --yes "$REF"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$REF"
+
   # -------------------------------------------------------------------------
-  # Stage 5 : Déclenchement GitOps (ArgoCD) — placeholder
+  # Stage 5 : Release et déploiement dev via socle (portes DevSecOps, GitOps,
+  # audit). Avec un serveur socle (vars.SOCLE_URL), la CI passe par l'API ;
+  # sans serveur, socle s'exécute en mode local dans le runner.
+  # La promotion vers staging/prod se fait par `socle promote` (approbations).
   # -------------------------------------------------------------------------
   deploy:
-    name: Trigger GitOps Sync
+    name: Release et déploiement dev (socle)
     runs-on: ubuntu-latest
-    needs: push
+    needs: [push, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
-      # Requis pour le commit/push de mise à jour du manifest GitOps.
+      # Commit GitOps de l'overlay dev (mode local uniquement).
       contents: write
+    env:
+      SOCLE_URL: ${{ vars.SOCLE_URL }}
+      SOCLE_TOKEN: ${{ secrets.SOCLE_CI_TOKEN }}
+      SOCLE_ACTOR: github:${{ github.actor }}
+      DIGEST: ${{ needs.push.outputs.digest }}
+      # (le contexte env n'est pas disponible à ce niveau : valeur explicite)
+      REF: ghcr.io/${{ github.repository }}/erp-app
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Le tag est géré par Kustomize (images.newTag). On ne met à jour que
-      # l'overlay dev : la promotion vers staging/prod se fait par PR.
-      - name: Update GitOps image tag (dev overlay)
-        env:
-          OVERLAY: platform/gitops/argocd/apps/erp/overlays/dev/kustomization.yaml
-        run: |
-          sed -i "s|^\(\s*newTag:\).*|\1 main-${GITHUB_SHA}|" "$OVERLAY"
-          grep -q "newTag: main-${GITHUB_SHA}" "$OVERLAY"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: socle
 
-      - name: Commit and push GitOps update
+      - name: Construire la CLI socle
+        run: cargo build --release --locked --manifest-path socle/Cargo.toml -p socle
+
+      - name: Rapport de vulnérabilités
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-report
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Vérifier la signature (preuve réelle, pas déclarative)
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add platform/gitops/argocd/apps/erp/overlays/dev/kustomization.yaml
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore(gitops): deploy app main-${{ github.sha }}"
-            git push
-          fi
+          cosign verify "${REF}@${DIGEST}"             --certificate-identity-regexp "^${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/"             --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+
+      - name: Enregistrer la release et ses preuves
+        run: |
+          mode=$([ -n "$SOCLE_URL" ] || echo --local)
+          socle/target/release/socle $mode release register             --service erp-app --version "main-${GITHUB_SHA::12}" --digest "$DIGEST" --git-sha "$GITHUB_SHA"             --tests-passed true --trivy-report trivy-report.json --signed             --sbom "oci://${REF}@${DIGEST}#cyclonedx"             --provenance "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Déployer en dev
+        run: |
+          mode=$([ -n "$SOCLE_URL" ] || echo --local)
+          socle/target/release/socle $mode deploy erp-app -e dev --release "$DIGEST"             --reason "Livraison continue ${GITHUB_SHA::12}" --wait
+
+      - name: Exporter le journal d'audit (mode local)
+        if: always() && env.SOCLE_URL == ''
+        run: socle/target/release/socle --local audit export --out socle-audit.jsonl
+
+      - name: Conserver le journal d'audit
+        if: always() && env.SOCLE_URL == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: socle-audit
+          path: socle-audit.jsonl
+          retention-days: 90

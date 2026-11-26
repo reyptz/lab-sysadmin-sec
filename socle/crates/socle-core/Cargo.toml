@@ -1,0 +1,22 @@
+[package]
+name = "socle-core"
+description = "Noyau métier de socle : modèle déclaratif, politiques, planification, audit (sans E/S)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+serde_norway.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+
+[lints]
+workspace = true

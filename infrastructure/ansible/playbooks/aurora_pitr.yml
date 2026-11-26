@@ -1,0 +1,109 @@
+---
+# Aurora PostgreSQL : surveillance du RPO et exercice de restauration PITR,
+# pilotés par socle (politique `aurora-erp`, source `command`). Exécuté en
+# local (--inventory=localhost, --connection=local) avec l'identité cloud de
+# socle (IRSA) : aucun secret transmis.
+#
+# Actions (socle_rds_action) :
+#   check : échoue si le dernier point de restauration (PITR) est plus ancien
+#           que rpo_seconds — socle en déduit la conformité RPO et alerte ;
+#   drill : clone PITR « copy-on-write » du cluster, instance de test, contrôle
+#           de connectivité, puis suppression garantie. socle mesure la durée
+#           et la compare au RTO.
+# La rétention quotidienne (35 j) reste assurée par AWS Backup (Terraform).
+- name: "Aurora {{ socle_rds_action }} ({{ cluster_id }})"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    aws_region: eu-west-3
+    cluster_id: lab-sysadmin-sec-aurora-prod
+    rpo_seconds: 900
+    drill_instance_class: db.t3.medium
+    drill_cluster: "socle-drill-{{ socle_operation }}"
+    drill_instance: "socle-drill-{{ socle_operation }}-1"
+
+  pre_tasks:
+    - name: Vérifier les paramètres transmis par socle
+      ansible.builtin.assert:
+        that:
+          - socle_rds_action in ['check', 'drill']
+          - socle_operation is match('^[a-z0-9]{1,12}$')
+        fail_msg: "paramètres socle invalides"
+
+    - name: Lire l'état du cluster source
+      amazon.aws.rds_cluster_info:
+        region: "{{ aws_region }}"
+        db_cluster_identifier: "{{ cluster_id }}"
+      register: source_info
+
+    - name: Le cluster source doit exister
+      ansible.builtin.assert:
+        that: source_info.clusters | length == 1
+        fail_msg: "cluster {{ cluster_id }} introuvable"
+
+  tasks:
+    - name: Contrôle du RPO (fraîcheur du PITR)
+      when: socle_rds_action == 'check'
+      vars:
+        latest: "{{ source_info.clusters[0].latest_restorable_time | string | regex_replace('(\\.\\d+)?(\\+00:00|Z)$', '') }}"
+        lag_seconds: "{{ (now(utc=True) - (latest | to_datetime('%Y-%m-%dT%H:%M:%S'))).total_seconds() | int }}"
+      ansible.builtin.assert:
+        that: lag_seconds | int <= rpo_seconds | int
+        success_msg: "PITR à jour : dernier point restaurable il y a {{ lag_seconds }} s"
+        fail_msg: "RPO dépassé : dernier point restaurable il y a {{ lag_seconds }} s (objectif {{ rpo_seconds }} s)"
+
+    - name: Exercice de restauration PITR
+      when: socle_rds_action == 'drill'
+      block:
+        - name: Cloner le cluster au dernier instant restaurable (copy-on-write)
+          amazon.aws.rds_cluster:
+            region: "{{ aws_region }}"
+            db_cluster_identifier: "{{ drill_cluster }}"
+            creation_source: cluster
+            source_db_cluster_identifier: "{{ cluster_id }}"
+            restore_type: copy-on-write
+            use_latest_restorable_time: true
+            engine: aurora-postgresql
+            db_subnet_group_name: "{{ source_info.clusters[0].db_subnet_group }}"
+            vpc_security_group_ids: "{{ source_info.clusters[0].vpc_security_groups | map(attribute='vpc_security_group_id') | list }}"
+            tags:
+              managed_by: socle
+              purpose: restore-drill
+            wait: true
+
+        - name: Créer l'instance de test du clone
+          amazon.aws.rds_instance:
+            region: "{{ aws_region }}"
+            db_instance_identifier: "{{ drill_instance }}"
+            db_cluster_identifier: "{{ drill_cluster }}"
+            engine: aurora-postgresql
+            db_instance_class: "{{ drill_instance_class }}"
+            publicly_accessible: false
+            tags:
+              managed_by: socle
+              purpose: restore-drill
+            wait: true
+          register: drill_db
+
+        - name: La base restaurée doit accepter les connexions
+          ansible.builtin.wait_for:
+            host: "{{ drill_db.endpoint.address }}"
+            port: "{{ drill_db.endpoint.port }}"
+            timeout: 600
+      always:
+        # Pas d'échec masqué : un clone oublié coûte. « absent » est idempotent.
+        - name: Supprimer l'instance de test
+          amazon.aws.rds_instance:
+            region: "{{ aws_region }}"
+            db_instance_identifier: "{{ drill_instance }}"
+            state: absent
+            skip_final_snapshot: true
+            wait: true
+
+        - name: Supprimer le clone
+          amazon.aws.rds_cluster:
+            region: "{{ aws_region }}"
+            db_cluster_identifier: "{{ drill_cluster }}"
+            state: absent
+            skip_final_snapshot: true

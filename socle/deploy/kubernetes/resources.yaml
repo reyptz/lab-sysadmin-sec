@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: socle
+  labels: { app.kubernetes.io/name: socle }
+  # Identité cloud par fédération (aucune clé statique) : IRSA (AWS),
+  # Workload Identity (Azure, GCP). Exemple AWS :
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/socle
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: socle
+  labels: { app.kubernetes.io/name: socle }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: socle }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: socle
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: socle }
+---
+# Entrées : contrôleur d'ingress (console/API) et Prometheus (/metrics).
+# Sorties : DNS, PostgreSQL, Git (SSH) et API HTTPS (Kubernetes, clouds, IdP).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: socle
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: socle }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+      ports:
+        - { port: 8080, protocol: TCP }
+  egress:
+    - ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - ports:
+        - { port: 5432, protocol: TCP }
+        - { port: 22, protocol: TCP }
+        - { port: 443, protocol: TCP }
+        - { port: 6443, protocol: TCP }

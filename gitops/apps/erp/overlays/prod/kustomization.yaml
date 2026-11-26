@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: erp-prod
+
+resources:
+  - ../../base
+
+images:
+  - name: erp-app
+    newTag: prod-1.0.0
+
+patches:
+  - path: socle-scaling.yaml
+  - target:
+      kind: Deployment
+      name: erp-app
+    patch: |-
+      - op: replace
+        path: /spec/strategy
+        value:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0

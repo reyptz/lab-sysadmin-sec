@@ -1,0 +1,113 @@
+---
+# Déploiement d'un service conteneurisé sur VMs RHEL (Podman + Quadlet/systemd),
+# piloté par socle (`socle deploy`). Lots successifs (serial), contrôle de santé
+# sur chaque hôte, arrêt au premier échec : socle déclenche alors le retour
+# arrière en rejouant ce playbook avec la release précédente.
+#
+# Variables fournies par socle (préfixe socle_ réservé) :
+#   socle_service, socle_environment, socle_image (dépôt@sha256:…), socle_version,
+#   socle_strategy, socle_serial, socle_health_path, socle_operation
+# Variables du service (extra_vars dans socle.yaml) :
+#   service_port, health_port, publish, container_env, volumes, read_only
+- name: "Déploiement {{ socle_service }} {{ socle_version }} ({{ socle_environment }})"
+  hosts: all
+  become: true
+  serial: "{{ socle_serial | default([1]) }}"
+  max_fail_percentage: 0
+  any_errors_fatal: true
+  vars:
+    service_port: 8080
+    health_port: "{{ service_port }}"
+    publish: ["{{ service_port }}:{{ service_port }}"]
+    container_env: {}
+    volumes: []
+    read_only: true
+    quadlet_dir: /etc/containers/systemd
+
+  pre_tasks:
+    - name: Refuser une exécution sans ciblage explicite (--limit)
+      ansible.builtin.assert:
+        that: ansible_limit is defined
+        fail_msg: "ce playbook doit être lancé par socle (ciblage --limit obligatoire)"
+
+    - name: Vérifier les paramètres transmis par socle
+      ansible.builtin.assert:
+        that:
+          - socle_service is match('^[a-z][a-z0-9-]{0,62}$')
+          - socle_image is match('^[a-z0-9./:_-]+@sha256:[a-f0-9]{64}$')
+        fail_msg: "paramètres socle invalides (service ou image non immuable)"
+
+  tasks:
+    - name: Installer Podman
+      ansible.builtin.dnf:
+        name: podman
+        state: present
+
+    - name: Récupérer l'image par digest (immuable)
+      containers.podman.podman_image:
+        name: "{{ socle_image }}"
+
+    - name: Publier l'unité Quadlet
+      ansible.builtin.copy:
+        dest: "{{ quadlet_dir }}/{{ socle_service }}.container"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Géré par socle — opération {{ socle_operation }}. Ne pas modifier à la main.
+          [Unit]
+          Description={{ socle_service }} {{ socle_version }} ({{ socle_environment }})
+          Wants=network-online.target
+          After=network-online.target
+
+          [Container]
+          ContainerName={{ socle_service }}
+          Image={{ socle_image }}
+          {% for p in publish %}
+          PublishPort={{ p }}
+          {% endfor %}
+          {% for k, v in container_env.items() %}
+          Environment={{ k }}={{ v }}
+          {% endfor %}
+          {% for v in volumes %}
+          Volume={{ v }}
+          {% endfor %}
+          NoNewPrivileges=true
+          DropCapability=all
+          ReadOnly={{ 'true' if read_only | bool else 'false' }}
+          Label=socle.service={{ socle_service }}
+          Label=socle.version={{ socle_version }}
+
+          [Service]
+          Restart=always
+          TimeoutStartSec=300
+
+          [Install]
+          WantedBy=multi-user.target
+      register: unit
+
+    - name: Recharger systemd (générateur Quadlet)
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: unit.changed
+
+    - name: Redémarrer le service sur la nouvelle image
+      ansible.builtin.systemd_service:
+        name: "{{ socle_service }}.service"
+        state: restarted
+      when: unit.changed
+
+    - name: S'assurer que le service tourne
+      ansible.builtin.systemd_service:
+        name: "{{ socle_service }}.service"
+        state: started
+
+    - name: Contrôle de santé local avant de passer au lot suivant
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ health_port }}{{ socle_health_path }}"
+        status_code: 200
+      register: health
+      retries: 12
+      delay: 5
+      until: health.status == 200
+      when: socle_health_path | default(none) is not none

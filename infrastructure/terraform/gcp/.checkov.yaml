@@ -1,0 +1,6 @@
+# Configuration Checkov de la zone d'accueil gcp. Toute exception ajoutée ici
+# doit être justifiée (écart assumé + condition pour la lever), comme pour AWS.
+framework:
+  - terraform
+compact: true
+skip-check: []

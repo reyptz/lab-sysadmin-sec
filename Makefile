@@ -1,89 +1,98 @@
 # Makefile du lab Cloud / DevOps / RHEL
 # Sous Windows : utiliser Git Bash, WSL ou installer make via choco.
+#
+# Les opérations de cycle de vie (déploiement, promotion, retour arrière,
+# infrastructure, sauvegardes, correctifs, incidents) passent par socle :
+# `make socle-help` ou `socle --help`. Les cibles ci-dessous couvrent la
+# construction de l'outil, les contrôles locaux et le lab.
 
-.PHONY: help monitoring-up monitoring-down ansible-deps ansible-site ansible-lvm ansible-firewalld ansible-podman ansible-cron-acls ansible-boot cloud-validate cloud-plan-aws cloud-plan-aws-sap checkov security-audit sre-check sre-apply policies-kyverno policies-gatekeeper scan-trivy clean
+.PHONY: help socle-build socle-test socle-lint socle-validate socle-serve socle-help socle-image \
+	monitoring-up monitoring-down ansible-deps ansible-site ansible-syntax security-audit \
+	cloud-validate checkov sre-check sre-apply policies-kyverno scan-trivy gitops-render clean
 
-ALLOWED_SSH_CIDR ?= $(shell echo $$ALLOWED_SSH_CIDR)
+SOCLE ?= socle/target/release/socle
 
 help: ## Affiche l'aide
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 # ---------------------------------------------------------------
-# Monitoring (Prometheus + Grafana)
+# socle — plan de contrôle du cycle de vie
+# ---------------------------------------------------------------
+socle-build: ## Compile socle (binaire optimisé)
+	cargo build --release --locked --manifest-path socle/Cargo.toml -p socle
+
+socle-test: ## Tests unitaires et d'intégration de socle
+	cargo test --workspace --locked --manifest-path socle/Cargo.toml
+
+socle-lint: ## Formatage et lint strict (identiques à la CI)
+	cargo fmt --all --check --manifest-path socle/Cargo.toml
+	cargo clippy --workspace --all-targets --locked --manifest-path socle/Cargo.toml -- -D warnings
+
+socle-validate: socle-build ## Valide socle.yaml (références croisées)
+	$(SOCLE) validate --spec socle.yaml
+
+socle-serve: socle-build ## Serveur local (SQLite, console sur http://127.0.0.1:8080)
+	$(SOCLE) serve --bind 127.0.0.1:8080
+
+socle-help: socle-build ## Aide de la CLI socle
+	$(SOCLE) --help
+
+socle-image: ## Construit l'image conteneur de socle
+	docker build -t socle:dev socle/
+
+# ---------------------------------------------------------------
+# Monitoring local (Prometheus + Grafana)
 # ---------------------------------------------------------------
 monitoring-up: ## Demarre la stack monitoring
-	docker compose -f platform/monitoring/docker-compose.yml up -d
+	docker compose -f observability/docker-compose.yml up -d
 
 monitoring-down: ## Arrete la stack monitoring
-	docker compose -f platform/monitoring/docker-compose.yml down
+	docker compose -f observability/docker-compose.yml down
 
 # ---------------------------------------------------------------
-# Ansible RHCSA
+# Ansible (RHEL)
 # ---------------------------------------------------------------
 ansible-deps: ## Installe les collections Ansible requises
-	cd infrastructure/onprem/ansible && ansible-galaxy collection install -r requirements.yml
+	cd infrastructure/ansible && ansible-galaxy collection install -r requirements.yml
 
-ansible-site: ## Lance le playbook Ansible principal
-	cd infrastructure/onprem/ansible && ansible-playbook -i inventory/inventory.yml site.yml
+ansible-site: ## Lance le playbook Ansible principal (RHCSA + durcissement)
+	cd infrastructure/ansible && ansible-playbook -i inventory/inventory.yml site.yml
 
-ansible-lvm: ## RHCSA — LVM, partitioning, fstab
-	cd infrastructure/onprem/ansible && ansible-playbook -i inventory/inventory.yml playbooks/lvm_storage.yml
+ansible-syntax: ## Verifie la syntaxe de tous les playbooks
+	cd infrastructure/ansible && for pb in site.yml playbooks/*.yml; do ansible-playbook -i inventory/inventory.yml --syntax-check $$pb || exit 1; done
 
-ansible-firewalld: ## RHCSA — firewalld + nmcli networking
-	cd infrastructure/onprem/ansible && ansible-playbook -i inventory/inventory.yml playbooks/firewalld_network.yml
-
-ansible-podman: ## RHCSA — Podman containers rootless
-	cd infrastructure/onprem/ansible && ansible-playbook -i inventory/inventory.yml playbooks/podman_containers.yml
-
-ansible-cron-acls: ## RHCSA — cron/at, permissions, ACLs
-	cd infrastructure/onprem/ansible && ansible-playbook -i inventory/inventory.yml playbooks/cron_acls.yml
-
-ansible-boot: ## RHCSA — boot targets, root reset, journalctl
-	cd infrastructure/onprem/ansible && ansible-playbook -i inventory/inventory.yml playbooks/boot_recovery.yml
+security-audit: ## Audit CIS en mode controle (aucune modification ; ecart = tache changed)
+	cd infrastructure/ansible && ansible-playbook -i inventory/inventory.yml --check --diff playbooks/cis_benchmark.yml playbooks/hardening.yml
 
 # ---------------------------------------------------------------
-# Cloud AWS
+# Infrastructure (validation locale ; plan/application via socle)
 # ---------------------------------------------------------------
-cloud-validate: ## Valide le format Terraform pour AWS
-	cd infrastructure/aws && terraform fmt -check && terraform init -backend=false && terraform validate
+cloud-validate: ## Valide toutes les stacks Terraform (AWS, Azure, GCP, OVHcloud, Scaleway)
+	for s in aws azure gcp ovh scaleway; do (cd infrastructure/$$s && terraform fmt -check -recursive && terraform init -backend=false -input=false && terraform validate) || exit 1; done
 
-cloud-plan-aws: ## Plan Terraform AWS
-	cd infrastructure/aws && terraform plan -var="environment=dev" -var="allowed_ssh_cidr=$(ALLOWED_SSH_CIDR)"
-
-cloud-plan-aws-sap: ## Plan Terraform AWS avec tous les features SAP actives
-	cd infrastructure/aws && terraform plan -var="environment=dev" -var="allowed_ssh_cidr=$(ALLOWED_SSH_CIDR)" -var="enable_config=true" -var="enable_guardduty=true" -var="enable_securityhub=true" -var="enable_waf=true" -var="enable_kinesis=true"
-
-# ---------------------------------------------------------------
-# Securite & Qualite
-# ---------------------------------------------------------------
 checkov: ## Scan de securite du module AWS avec Checkov
-	checkov -d infrastructure/aws --config-file infrastructure/aws/.checkov.yaml
-
-security-audit: ## Lance l'audit CIS local
-	bash scripts/cis_audit.sh
+	checkov -d infrastructure/terraform/aws --config-file infrastructure/terraform/aws/.checkov.yaml
 
 # ---------------------------------------------------------------
-# SRE / DevSecOps
+# GitOps, SRE et politiques Kubernetes
 # ---------------------------------------------------------------
-sre-check: ## Verifie les regles Prometheus
-	promtool check rules platform/sre/rules/prometheus-rules.yml
+gitops-render: ## Rend tous les overlays Kustomize (erreurs de manifests)
+	for o in gitops/apps/erp/overlays/*/; do kubectl kustomize $$o > /dev/null || exit 1; done
 
-# prometheus-rules.yml est un fichier de regles Prometheus natif (pas un CRD
+sre-check: ## Verifie les regles Prometheus (SRE et socle)
+	promtool check rules observability/rules/sre.yml observability/rules/socle.yml
+
+# observability/rules/sre.yml est un fichier de regles Prometheus natif (pas un CRD
 # PrometheusRule) : il est publie en ConfigMap, a monter dans rule_files.
 sre-apply: ## Applique les regles Prometheus et le dashboard
-	kubectl create configmap prometheus-rules-invoices --from-file=platform/sre/rules/prometheus-rules.yml -n monitoring --dry-run=client -o yaml | kubectl apply -f -
-	kubectl create configmap grafana-dashboard-invoices --from-file=platform/sre/dashboards/grafana-dashboard.json -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+	kubectl create configmap prometheus-rules-invoices --from-file=observability/rules/sre.yml -n monitoring --dry-run=client -o yaml | kubectl apply -f -
+	kubectl create configmap grafana-dashboard-invoices --from-file=observability/dashboards/api-facturation.json -n monitoring --dry-run=client -o yaml | kubectl apply -f -
 
-policies-kyverno: ## Applique les policies Kyverno
-	kubectl apply -f platform/devsecops/policies/kubernetes/kyverno/
-
-policies-gatekeeper: ## Applique les templates et constraints Gatekeeper
-	kubectl apply -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-template-privileged.yaml -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-template-host-namespace.yaml
-	kubectl wait --for=condition=Established --timeout=60s crd/k8spspprivileged.constraints.gatekeeper.sh crd/k8spsphostnamespace.constraints.gatekeeper.sh
-	kubectl apply -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-privileged.yaml -f platform/devsecops/policies/kubernetes/gatekeeper/constraint-host-namespace.yaml
+policies-kyverno: ## Applique les policies Kyverno (unique moteur d'admission)
+	kubectl apply -f gitops/cluster/policies/
 
 scan-trivy: ## Scan local avec Trivy (IMAGE=<ref>)
-	trivy image --config platform/devsecops/policies/scan/trivy/trivy-config.yaml $(IMAGE)
+	trivy image --config security/trivy/trivy-config.yaml $(IMAGE)
 
 # ---------------------------------------------------------------
 # Nettoyage
@@ -92,3 +101,4 @@ clean: ## Supprime les fichiers temporaires
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .terraform -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name '*.retry' -delete 2>/dev/null || true
+	find . -type f -name '.socle-*.tfplan' -delete 2>/dev/null || true

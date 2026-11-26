@@ -1,0 +1,8 @@
+# Fichier géré par socle (`socle scale`) — ne pas modifier à la main.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: erp-app
+spec:
+  minReplicas: 2
+  maxReplicas: 4

@@ -1,0 +1,178 @@
+---
+# Sauvegarde de fichiers avec restic, pilotée par socle (politiques `files` de
+# socle.yaml). Remplace backup_rotate.sh et managed_backup.sh : un seul outil,
+# chiffré, dédupliqué, avec rétention GFS, vérification d'intégrité et copies
+# vers d'autres fournisseurs (règle 3-2-1).
+#
+# Actions (socle_restic_action) :
+#   backup  : sauvegarde + rétention + contrôle d'intégrité + copies
+#   restore : restauration (instantané donné ou « latest ») vers socle_restore_target
+#   drill   : exercice — restauration dans un dossier jetable, vérification, nettoyage
+#
+# Secrets : jamais transmis par socle. Ils sont provisionnés sur l'hôte (0600 root) :
+#   /etc/socle/restic.password  mot de passe du dépôt
+#   /etc/socle/restic.env       identifiants du stockage (AWS_ACCESS_KEY_ID=…, ou
+#                               OS_* pour Swift/OVHcloud, AZURE_* pour Azure Blob…)
+- name: "restic {{ socle_restic_action }} — {{ socle_policy }} ({{ socle_environment }})"
+  hosts: all
+  become: true
+  vars:
+    restic_password_file: /etc/socle/restic.password
+    restic_env_file: /etc/socle/restic.env
+    socle_copies: []
+    socle_exclude: []
+    socle_retention: {}
+    check_subset: "5%"
+
+  pre_tasks:
+    - name: Refuser une exécution sans ciblage explicite (--limit)
+      ansible.builtin.assert:
+        that:
+          - ansible_limit is defined
+          - socle_restic_action in ['backup', 'restore', 'drill']
+          - socle_repository | length > 0
+        fail_msg: "paramètres socle invalides"
+
+  tasks:
+    - name: Installer restic (EPEL)
+      ansible.builtin.dnf:
+        name: restic
+        state: present
+
+    - name: Vérifier le mot de passe du dépôt (fichier root 0600)
+      ansible.builtin.stat:
+        path: "{{ restic_password_file }}"
+      register: pw
+
+    - name: Refuser un secret absent ou trop ouvert
+      ansible.builtin.assert:
+        that:
+          - pw.stat.exists
+          - pw.stat.mode in ['0600', '0400']
+          - pw.stat.pw_name == 'root'
+        fail_msg: "{{ restic_password_file }} absent ou permissions trop larges"
+
+    - name: Charger les identifiants du stockage
+      ansible.builtin.slurp:
+        src: "{{ restic_env_file }}"
+      register: env_raw
+      failed_when: false
+      no_log: true
+
+    - name: Préparer l'environnement restic
+      ansible.builtin.set_fact:
+        restic_env: >-
+          {{ dict((env_raw.content | default('') | b64decode).splitlines()
+                  | select('match', '^[A-Z_][A-Z0-9_]*=') | map('split', '=', 1) | list)
+             | combine({'RESTIC_REPOSITORY': socle_repository, 'RESTIC_PASSWORD_FILE': restic_password_file}) }}
+      no_log: true
+
+    # ------------------------------------------------------------- backup
+    - name: Sauvegarde, rétention et contrôles
+      when: socle_restic_action == 'backup'
+      environment: "{{ restic_env }}"
+      block:
+        - name: Initialiser le dépôt si nécessaire
+          ansible.builtin.command:
+            argv: [restic, cat, config]
+          register: repo_ready
+          changed_when: false
+          failed_when: false
+
+        - name: Créer le dépôt
+          ansible.builtin.command:
+            argv: [restic, init]
+          when: repo_ready.rc != 0
+
+        - name: Sauvegarder
+          ansible.builtin.command:
+            argv: >-
+              {{ ['restic', 'backup', '--tag', 'socle', '--tag', 'policy=' ~ socle_policy,
+                  '--tag', 'env=' ~ socle_environment, '--tag', 'operation=' ~ socle_operation]
+                 + (socle_exclude | map('regex_replace', '^', '--exclude=') | list)
+                 + socle_paths }}
+          register: backup_out
+
+        # Même sémantique GFS que socle (0 = règle inactive). Le regroupement par
+        # hôte et chemins ignore l'étiquette d'opération, propre à chaque instantané.
+        - name: Appliquer la rétention GFS
+          ansible.builtin.command:
+            argv:
+              - restic
+              - forget
+              - --prune
+              - --tag=socle,policy={{ socle_policy }}
+              - --group-by=host,paths
+              - --keep-last={{ socle_retention.last | default(0) }}
+              - --keep-hourly={{ socle_retention.hourly | default(0) }}
+              - --keep-daily={{ socle_retention.daily | default(0) }}
+              - --keep-weekly={{ socle_retention.weekly | default(0) }}
+              - --keep-monthly={{ socle_retention.monthly | default(0) }}
+              - --keep-yearly={{ socle_retention.yearly | default(0) }}
+          register: forget_out
+          changed_when: "'removed' in forget_out.stdout"
+
+        - name: Vérifier l'intégrité (échantillon des données)
+          ansible.builtin.command:
+            argv: [restic, check, "--read-data-subset={{ check_subset }}"]
+          changed_when: false
+
+        - name: Copier vers les dépôts secondaires (autres fournisseurs)
+          ansible.builtin.command:
+            argv:
+              - restic
+              - --repo={{ item }}
+              - copy
+              - --from-repo={{ socle_repository }}
+              - --from-password-file={{ restic_password_file }}
+              - --tag=socle
+          loop: "{{ socle_copies }}"
+          environment: "{{ restic_env | combine({'RESTIC_REPOSITORY': item}) }}"
+
+    # ------------------------------------------------------------ restore
+    - name: Restauration
+      when: socle_restic_action == 'restore'
+      environment: "{{ restic_env }}"
+      block:
+        - name: Préparer la destination
+          ansible.builtin.file:
+            path: "{{ socle_restore_target }}"
+            state: directory
+            mode: "0700"
+          when: socle_restore_target != '/'
+
+        - name: Restaurer
+          ansible.builtin.command:
+            argv: [restic, restore, "{{ socle_snapshot | default('latest') }}", --target, "{{ socle_restore_target }}"]
+
+    # -------------------------------------------------------------- drill
+    - name: Exercice de restauration
+      when: socle_restic_action == 'drill'
+      environment: "{{ restic_env }}"
+      block:
+        - name: Restaurer dans un dossier jetable
+          ansible.builtin.command:
+            argv: [restic, restore, latest, "--tag=socle,policy={{ socle_policy }}", --target, "{{ socle_restore_target }}"]
+
+        - name: Compter les fichiers restaurés
+          ansible.builtin.find:
+            paths: "{{ socle_restore_target }}"
+            recurse: true
+            file_type: file
+          register: restored
+
+        - name: L'exercice doit restaurer des données
+          ansible.builtin.assert:
+            that: restored.matched > 0
+            fail_msg: "aucune donnée restaurée : la sauvegarde est inutilisable"
+
+        - name: Vérifier l'intégrité complète d'un échantillon
+          ansible.builtin.command:
+            argv: [restic, check, --read-data-subset=1%]
+          changed_when: false
+      always:
+        - name: Supprimer les données de l'exercice
+          ansible.builtin.file:
+            path: "{{ socle_restore_target }}"
+            state: absent
+          when: socle_restore_target is match('^/var/lib/socle/drill/')

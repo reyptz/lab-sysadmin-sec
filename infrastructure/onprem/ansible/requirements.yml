@@ -1,6 +1,0 @@
----
-# Installation : ansible-galaxy collection install -r requirements.yml
-collections:
-  - name: community.general   # lvg, lvol, nmcli, parted, filesystem
-  - name: ansible.posix       # selinux, firewalld, acl, mount
-  - name: containers.podman   # podman_image, podman_container

@@ -4,19 +4,19 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'platform/shinra/**'
+      - 'apps/shinra/**'
       - '.github/workflows/shinra.yml'
   pull_request:
     branches: [main, master]
     paths:
-      - 'platform/shinra/**'
+      - 'apps/shinra/**'
       - '.github/workflows/shinra.yml'
 
 permissions:
   contents: read
 
 env:
-  SHINRA_DIR: platform/shinra
+  SHINRA_DIR: apps/shinra
 
 jobs:
   engine:
@@ -41,24 +41,126 @@ jobs:
           pip install bandit==1.7.10
           bandit -r ${{ env.SHINRA_DIR }}/src-engine -ll
 
-  scripts:
-    name: Scripts shell et playbooks YAML
+  playbooks:
+    name: Playbooks de contre-mesures (YAML)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: ShellCheck (ShellCheck est préinstallé sur ubuntu-latest)
-        run: shellcheck --severity=warning ${{ env.SHINRA_DIR }}/scripts/*.sh
 
       - name: Validation YAML des playbooks
         run: |
           pip install pyyaml
           python - <<'PY'
           import glob, yaml
-          for f in sorted(glob.glob("platform/shinra/playbooks/*.yml")):
+          for f in sorted(glob.glob("apps/shinra/playbooks/*.yml")):
               doc = yaml.safe_load(open(f, encoding="utf-8"))
               missing = {"name", "triggers", "actions"} - set(doc)
               assert not missing, f"{f}: clés manquantes {missing}"
               print("ok", f)
           PY
+
+  # ---------------------------------------------------------------------------
+  # Image du moteur : construite et analysée à chaque changement ; publiée,
+  # signée et enregistrée comme release socle sur main. Le déploiement en
+  # production passe par `socle deploy shinra-engine -e prod` (approbation).
+  # ---------------------------------------------------------------------------
+  image:
+    name: Image shinra-engine (build, scan, signature, release)
+    runs-on: ubuntu-latest
+    needs: engine
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/shinra-engine
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      SOCLE_URL: ${{ vars.SOCLE_URL }}
+      SOCLE_TOKEN: ${{ secrets.SOCLE_CI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion au registre
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construire (et publier sur main)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.SHINRA_DIR }}/src-engine
+          load: ${{ env.PUBLISH != 'true' }}
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Test de fumée réel du conteneur : démarrage (init de la base) et
+      # /health. C'est cette preuve qui est transmise à socle (tests_passed).
+      - name: Test de fumée du conteneur
+        run: |
+          docker run -d --name shinra-smoke -p 127.0.0.1:8000:8000 "${IMAGE}:${GITHUB_SHA}"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health | grep -q operational; then echo "santé OK"; exit 0; fi
+            sleep 2
+          done
+          docker logs shinra-smoke
+          exit 1
+
+      - name: Vulnérabilités critiques et hautes bloquantes
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Rapport Trivy JSON (preuve pour socle)
+        if: env.PUBLISH == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: json
+          output: trivy-report.json
+
+      - name: SBOM CycloneDX
+        if: env.PUBLISH == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - uses: sigstore/cosign-installer@v3
+        if: env.PUBLISH == 'true'
+
+      - name: Signer l'image et attester le SBOM
+        if: env.PUBLISH == 'true'
+        env:
+          REF: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "$REF"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$REF"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.PUBLISH == 'true' && env.SOCLE_URL != ''
+      - uses: Swatinem/rust-cache@v2
+        if: env.PUBLISH == 'true' && env.SOCLE_URL != ''
+        with:
+          workspaces: socle
+
+      - name: Enregistrer la release dans socle
+        if: env.PUBLISH == 'true' && env.SOCLE_URL != ''
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cargo build --release --locked --manifest-path socle/Cargo.toml -p socle
+          socle/target/release/socle release register             --service shinra-engine --version "main-${GITHUB_SHA::12}" --digest "$DIGEST" --git-sha "$GITHUB_SHA"             --tests-passed true --trivy-report trivy-report.json --signed             --sbom "oci://${IMAGE}@${DIGEST}#cyclonedx"             --provenance "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

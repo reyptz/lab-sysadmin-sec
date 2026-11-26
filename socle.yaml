@@ -1,0 +1,308 @@
+# =============================================================================
+# socle.yaml — spécification de la plateforme lab-sysadmin-sec
+# =============================================================================
+# Source de vérité unique du cycle de vie : fournisseurs (multi-cloud et
+# on-premise), cibles d'exécution, stacks d'infrastructure, environnements,
+# politiques de changement, services, sauvegardes, runbooks, équipes, droits
+# et notifications. Toute modification passe par merge request ; `socle
+# validate` contrôle l'ensemble des références croisées (CI : workflow socle).
+#
+# Aucun secret ici : uniquement des références (env:, file:, vault:, aws-sm:,
+# azure-kv:, gcp-sm:) résolues au moment de l'exécution.
+version: 1
+
+platform:
+  name: lab-sysadmin-sec
+  description: Lab Cloud / DevOps / RHEL — ERP conteneurisé, socle RHEL, défense active
+  owner_team: platform
+  gitops_repo: "."
+  gitops_branch: main
+  ansible_dir: infrastructure/ansible
+
+# -----------------------------------------------------------------------------
+# Fournisseurs : multi-cloud + on-premise. Les cibles et stacks ci-dessous
+# s'y rattachent ; ajouter un cloud = déclarer ses cibles/stacks, pas de code.
+# -----------------------------------------------------------------------------
+providers:
+  aws-paris:      { kind: aws, region: eu-west-3, description: "Production principale (EKS, RHEL EC2, Aurora)" }
+  azure-fr:       { kind: azure, region: francecentral, description: "Reprise d'activité (AKS)" }
+  gcp-paris:      { kind: gcp, region: europe-west9, description: "Analytique et environnements éphémères (GKE)" }
+  ovh-gra:        { kind: ovh, region: GRA, description: "Copies de sauvegarde souveraines (Object Storage)" }
+  scaleway-par:   { kind: scaleway, region: fr-par, description: "Copies de sauvegarde souveraines (Object Storage)" }
+  datacenter-pa:  { kind: onprem, description: "Serveurs RHEL sur site (Ansible)" }
+
+# -----------------------------------------------------------------------------
+# Cibles d'exécution : Kubernetes (GitOps Argo CD) et VMs RHEL (Ansible).
+# -----------------------------------------------------------------------------
+targets:
+  eks-dev:      { kind: kubernetes, provider: aws-paris, context: eks-dev }
+  eks-staging:  { kind: kubernetes, provider: aws-paris, context: eks-staging }
+  eks-prod:     { kind: kubernetes, provider: aws-paris, context: eks-prod }
+  rhel-onprem:
+    kind: vm
+    provider: datacenter-pa
+    inventory: inventory/inventory.yml
+    group: rhel_servers
+    patching: { batch: "1", security_only: true, reboot: true }
+  # Clusters des autres fournisseurs (zones d'accueil infrastructure/<fournisseur>) :
+  aks-prod:      { kind: kubernetes, provider: azure-fr, context: aks-lab-sysadmin-sec-prod }
+  gke-dev:       { kind: kubernetes, provider: gcp-paris, context: gke-lab-sysadmin-sec-dev }
+  mks-prod:      { kind: kubernetes, provider: ovh-gra, context: mks-lab-sysadmin-sec-prod }
+  kapsule-prod:  { kind: kubernetes, provider: scaleway-par, context: kapsule-lab-sysadmin-sec-prod }
+
+# -----------------------------------------------------------------------------
+# Infrastructure (Terraform / OpenTofu) : plan puis application du plan
+# approuvé ; détection de dérive planifiée.
+# -----------------------------------------------------------------------------
+stacks:
+  aws-core:
+    provider: aws-paris
+    path: infrastructure/terraform/aws
+    tool: terraform
+    environments: [dev, staging, prod]
+    var_files: ["env/{env}.tfvars"]
+    backend_config: "backend/{env}.hcl"
+    drift_check: 24h
+  azure-dr:
+    provider: azure-fr
+    path: infrastructure/terraform/azure
+    environments: [prod]
+    var_files: ["env/{env}.tfvars"]
+    backend_config: "backend/{env}.hcl"
+    drift_check: 24h
+  gcp-preview:
+    provider: gcp-paris
+    path: infrastructure/terraform/gcp
+    environments: [dev]
+    var_files: ["env/{env}.tfvars"]
+    backend_config: "backend/{env}.hcl"
+    drift_check: 24h
+  ovh-backup:
+    provider: ovh-gra
+    path: infrastructure/terraform/ovh
+    environments: [prod]
+    var_files: ["env/{env}.tfvars"]
+    backend_config: "backend/{env}.hcl"
+    drift_check: 24h
+  scaleway-backup:
+    provider: scaleway-par
+    path: infrastructure/terraform/scaleway
+    environments: [prod]
+    var_files: ["env/{env}.tfvars"]
+    backend_config: "backend/{env}.hcl"
+    drift_check: 24h
+
+# -----------------------------------------------------------------------------
+# Environnements et politiques
+# -----------------------------------------------------------------------------
+environments:
+  dev:
+    tier: development
+    policy: relaxed
+    description: Intégration continue — déploiement automatique depuis main
+    alert_labels: { env: dev }
+  staging:
+    tier: staging
+    policy: standard
+    promote_from: dev
+    description: Recette — même artefact que dev
+    alert_labels: { env: staging }
+  prod:
+    tier: production
+    policy: strict
+    promote_from: staging
+    description: Production — canary, quatre yeux, fenêtres de changement
+    alert_labels: { env: prod }
+    change_windows:
+      - { days: [mon, tue, wed, thu], start: "09:00", end: "16:00", timezone: Europe/Paris }
+    freezes:
+      - { from: "2026-12-19T18:00:00+01:00", to: "2027-01-04T08:00:00+01:00", reason: Gel de fin d'année }
+
+policies:
+  relaxed:
+    approvals: 0
+    require_tests: true
+    auto_rollback: true
+  standard:
+    approvals: 0
+    require_tests: true
+    max_critical: 0
+    enforce_promotion: true
+    block_on_incident: sev1
+    auto_rollback: true
+  strict:
+    approvals: 1
+    require_change_ticket: true
+    change_ticket_pattern: "^CHG-[0-9]{3,}$"
+    require_tests: true
+    require_signature: true
+    require_sbom: true
+    max_critical: 0
+    max_high: 0
+    enforce_change_windows: true
+    enforce_promotion: true
+    block_on_incident: sev2
+    auto_rollback: true
+    allow_emergency: true
+
+# -----------------------------------------------------------------------------
+# Services
+# -----------------------------------------------------------------------------
+services:
+  erp-app:
+    team: erp
+    image: ghcr.io/reyptz/lab-sysadmin-sec/erp-app
+    description: ERP (Node.js / Express) — apps/erp
+    gitops:
+      path: "gitops/apps/erp/overlays/{env}"
+      application: "erp-{env}"
+      rollout: erp-app
+    health: { path: /health }
+    slo:
+      availability: 99.9
+      error_rate_query: >-
+        sum(rate(app_http_requests_total{namespace="erp-{env}",status=~"5.."}[5m]))
+        / clamp_min(sum(rate(app_http_requests_total{namespace="erp-{env}"}[5m])), 1)
+      max_error_rate: 0.01
+      verification_window: 10m
+    environments:
+      # La CI déploie dev depuis des runners sans accès au cluster : pas
+      # d'attente Argo CD ni de sonde (wait: false).
+      dev: { target: eks-dev, url: "https://erp.dev.lab.example", wait: false, replicas: { min: 1, max: 2 } }
+      staging: { target: eks-staging, url: "https://erp.staging.lab.example", replicas: { min: 2, max: 4 } }
+      prod:
+        target: eks-prod
+        strategy: canary
+        gitops_path: gitops/apps/erp/overlays/prod-canary
+        application: erp-prod-canary
+        url: "https://erp.lab.example"
+        replicas: { min: 3, max: 10 }
+
+  shinra-engine:
+    team: secops
+    image: ghcr.io/reyptz/lab-sysadmin-sec/shinra-engine
+    description: >-
+      Moteur de défense active Shinra (FastAPI) sur RHEL. Image construite,
+      testée et signée par le workflow shinra.yml (apps/shinra/src-engine).
+    ansible:
+      playbook: playbooks/deploy_service.yml
+      extra_vars:
+        service_port: 8000
+        publish: ["127.0.0.1:8000:8000"]
+        read_only: false
+        volumes: ["/var/lib/shinra:/app/data:Z"]
+    health: { path: /health }
+    environments:
+      prod: { target: rhel-onprem, strategy: canary, batch: "1" }
+
+# -----------------------------------------------------------------------------
+# Sauvegardes — objectif RPO 15 min / RTO 1 h en production.
+# socle pilote les VMs et Kubernetes, surveille le RPO de chaque politique et
+# mesure le RTO par des exercices hebdomadaires. Aurora : PITR natif contrôlé
+# toutes les 15 min, rétention quotidienne par AWS Backup (35 j).
+# -----------------------------------------------------------------------------
+backups:
+  rhel-files:
+    environment: prod
+    description: Configuration et données des serveurs RHEL (remplace backup_rotate.sh et managed_backup.sh)
+    source:
+      kind: files
+      target: rhel-onprem
+      paths: [/etc, /var/www, /home, /var/lib/shinra]
+      exclude: [/home/*/.cache]
+      repository: "s3:s3.eu-west-3.amazonaws.com/lab-sysadmin-sec-backups-prod/restic/rhel"
+      copies:
+        - "s3:s3.gra.io.cloud.ovh.net/lab-sysadmin-sec-prod-dr/restic/rhel"
+        - "s3:s3.fr-par.scw.cloud/lab-sysadmin-sec-prod-dr/restic/rhel"
+    every: 15m
+    rpo: 15m
+    rto: 1h
+    retention: { last: 8, hourly: 24, daily: 7, weekly: 4, monthly: 12 }
+    drill: { every: 7d }
+  erp-k8s:
+    environment: prod
+    description: Objets et volumes Kubernetes de l'ERP (Velero)
+    source: { kind: kubernetes, target: eks-prod, namespaces: [erp-prod] }
+    every: 1h
+    rpo: 1h
+    rto: 1h
+    retention: { daily: 7, weekly: 4 }
+    drill: { every: 7d }
+  aurora-erp:
+    environment: prod
+    description: Aurora PostgreSQL — fraîcheur du PITR vérifiée toutes les 15 min (RPO réel), clone PITR hebdomadaire mesuré (RTO)
+    source:
+      kind: command
+      backup: [ansible-playbook, "--inventory=localhost,", --connection=local, "--extra-vars=socle_rds_action=check socle_operation={operation} rpo_seconds=900", infrastructure/ansible/playbooks/aurora_pitr.yml]
+      drill: [ansible-playbook, "--inventory=localhost,", --connection=local, "--extra-vars=socle_rds_action=drill socle_operation={operation}", infrastructure/ansible/playbooks/aurora_pitr.yml]
+      timeout: 2h
+    every: 15m
+    rpo: 15m
+    rto: 1h
+    # Rétention effective : AWS Backup (35 j, infrastructure/terraform/aws) ; déclarée ici pour la revue.
+    retention: { daily: 35 }
+    drill: { every: 7d }
+
+# -----------------------------------------------------------------------------
+# Runbooks exécutables (même circuit que les autres opérations : droits,
+# portes, journal, audit).
+# -----------------------------------------------------------------------------
+runbooks:
+  audit-cis-rhel:
+    description: Audit CIS des serveurs RHEL en mode contrôle (aucune modification ; écart = tâche « changed »)
+    steps:
+      - kind: command
+        name: Audit CIS et durcissement (check + diff)
+        program: ansible-playbook
+        args: ["--check", "--diff", "playbooks/cis_benchmark.yml", "playbooks/hardening.yml"]
+        cwd: infrastructure/ansible
+        timeout: 30m
+  argocd-hard-refresh:
+    description: Force Argo CD à relire le dépôt et l'état du cluster (cache, dérive)
+    environments: [dev, staging, prod]
+    steps:
+      - kind: command
+        name: Rafraîchissement complet des applications
+        program: kubectl
+        args: ["--context=eks-{env}", "--namespace=argocd", "annotate", "applications.argoproj.io", "--all", "argocd.argoproj.io/refresh=hard", "--overwrite"]
+
+# -----------------------------------------------------------------------------
+# Équipes (mappées sur les groupes du fournisseur d'identité) et droits.
+# -----------------------------------------------------------------------------
+teams:
+  platform: { description: "Équipe plateforme (administration de socle)", idp_groups: [socle-platform] }
+  sre: { description: "Exploitation et astreinte", idp_groups: [socle-sre] }
+  erp: { description: "Équipe produit ERP", idp_groups: [socle-erp] }
+  secops: { description: "Sécurité opérationnelle (Shinra, durcissement)", idp_groups: [socle-secops] }
+  audit: { description: "Auditeurs internes et externes (ISO 27001 / SOC 2)", idp_groups: [socle-audit] }
+  ci: { description: "Jetons d'automatisation de la CI" }
+
+access:
+  - { team: platform, role: admin }
+  - { team: sre, role: operator }
+  - { team: sre, role: approver, environments: [staging, prod] }
+  - { team: erp, role: deployer, environments: [dev, staging, prod], services: [erp-app] }
+  - { team: secops, role: deployer, environments: [prod], services: [shinra-engine] }
+  - { team: secops, role: operator, environments: [prod] }
+  - { team: audit, role: auditor }
+  - { team: ci, role: deployer, environments: [dev], services: [erp-app] }
+
+# -----------------------------------------------------------------------------
+# Notifications
+# -----------------------------------------------------------------------------
+notifications:
+  channels:
+    ops-slack: { kind: slack, webhook: "env:SOCLE_SLACK_WEBHOOK" }
+    ops-teams: { kind: teams, webhook: "env:SOCLE_TEAMS_WEBHOOK" }
+    astreinte: { kind: pagerduty, routing_key: "env:SOCLE_PAGERDUTY_KEY" }
+  routes:
+    - events: ["operation.awaiting_approval", "operation.failed", "operation.rolled_back", "operation.emergency", "drift.detected", "maintenance.*"]
+      channels: [ops-slack, ops-teams]
+    - events: ["incident.*", "backup.rpo_breach"]
+      channels: [ops-slack, astreinte]
+      environments: [prod]
+
+observability:
+  prometheus_url: http://prometheus.monitoring.svc:9090
+  alertmanager_url: http://alertmanager.monitoring.svc:9093
+  grafana_url: https://grafana.lab.example

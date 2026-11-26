@@ -1,0 +1,158 @@
+name: socle — Qualité, sécurité et livraison
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'socle/**'
+      - 'socle.yaml'
+      - 'gitops/**'
+      - 'infrastructure/ansible/**'
+      - '.github/workflows/socle.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'socle/**'
+      - 'socle.yaml'
+      - 'gitops/**'
+      - 'infrastructure/ansible/**'
+      - '.github/workflows/socle.yml'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Rust : formatage, lint strict, tests (SQLite) et dépendances vulnérables
+  # ---------------------------------------------------------------------------
+  rust:
+    name: Rust (fmt, clippy, tests, audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: socle
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: socle
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: Audit RustSec des dépendances
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+  # ---------------------------------------------------------------------------
+  # Mêmes scénarios sur PostgreSQL (mode haute disponibilité)
+  # ---------------------------------------------------------------------------
+  postgres:
+    name: Tests d'intégration sur PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: socle
+          POSTGRES_PASSWORD: socle-ci
+          POSTGRES_DB: socle
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U socle" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SOCLE_TEST_POSTGRES_URL: postgres://socle:socle-ci@localhost:5432/socle
+    defaults:
+      run:
+        working-directory: socle
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: socle
+      - run: cargo test --locked -p socle --test engine --test api
+
+  # ---------------------------------------------------------------------------
+  # Spécification, GitOps, console et playbooks pilotés par socle
+  # ---------------------------------------------------------------------------
+  platform:
+    name: Spécification, GitOps et playbooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: socle
+      - name: Construire la CLI
+        run: cargo build --release --locked --manifest-path socle/Cargo.toml -p socle
+      - name: Valider socle.yaml (références croisées)
+        run: socle/target/release/socle validate --spec socle.yaml
+      - name: Rendre chaque overlay Kustomize
+        run: |
+          for overlay in gitops/apps/erp/overlays/*/ socle/deploy/kubernetes/; do
+            echo "::group::${overlay}"
+            kubectl kustomize "${overlay}" > /dev/null
+            echo "::endgroup::"
+          done
+      - name: Console web (syntaxe JavaScript)
+        run: node --check socle/crates/socle/assets/app.js
+      - name: Playbooks Ansible (syntaxe)
+        working-directory: infrastructure/ansible
+        run: |
+          pip install --quiet ansible-core
+          ansible-galaxy collection install -r requirements.yml
+          for pb in site.yml playbooks/*.yml; do
+            ansible-playbook -i inventory/inventory.yml --syntax-check "${pb}"
+          done
+
+  # ---------------------------------------------------------------------------
+  # Image du serveur socle : construite, analysée, signée (main uniquement)
+  # ---------------------------------------------------------------------------
+  image:
+    name: Image socle (build, scan, signature)
+    runs-on: ubuntu-latest
+    needs: [rust, postgres, platform]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/socle
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Construire et publier
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: socle
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:main
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Vulnérabilités critiques bloquantes
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - uses: sigstore/cosign-installer@v3
+      - name: Signature sans clé (OIDC GitHub)
+        run: cosign sign --yes "${IMAGE}@${{ steps.build.outputs.digest }}"

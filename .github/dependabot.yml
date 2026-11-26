@@ -1,15 +1,15 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /platform/cloudnative/app
+    directory: /apps/erp
     schedule:
       interval: weekly
   - package-ecosystem: docker
-    directory: /platform/cloudnative/app
+    directory: /apps/erp
     schedule:
       interval: weekly
   - package-ecosystem: docker-compose
-    directory: /platform/monitoring
+    directory: /observability
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
@@ -17,10 +17,21 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: pip
-    directory: /platform/shinra/src-engine
+    directory: /apps/shinra/src-engine
     schedule:
       interval: weekly
   - package-ecosystem: cargo
-    directory: /platform/shinra/src-agent
+    directory: /apps/shinra/src-agent
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /socle
+    schedule:
+      interval: weekly
+    groups:
+      socle-rust:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /socle
     schedule:
       interval: weekly

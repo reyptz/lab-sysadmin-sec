@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: erp-dev
+
+resources:
+  - ../../base
+
+# L'image est fixée par digest par socle (`socle deploy` / CI) ; la promotion
+# vers staging et prod passe par `socle promote` (portes + approbations).
+images:
+  - name: erp-app
+    newTag: dev-1.0.0
+
+# Bornes d'autoscaling gérées par socle (`socle scale`).
+patches:
+  - path: socle-scaling.yaml

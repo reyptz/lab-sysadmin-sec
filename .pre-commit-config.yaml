@@ -6,8 +6,6 @@ repos:
     hooks:
       - id: check-yaml
         args: ['--allow-multiple-documents']
-        # Les templates Helm ne sont pas du YAML valide avant rendu.
-        exclude: ^platform/cloudnative/helm/.*/templates/
       - id: check-json
       - id: check-merge-conflict
       - id: check-added-large-files
@@ -37,4 +35,4 @@ repos:
     hooks:
       - id: bandit
         args: ['-ll']
-        files: ^platform/shinra/src-engine/
+        files: ^apps/shinra/src-engine/

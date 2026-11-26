@@ -1,0 +1,53 @@
+# Reprend les deux contraintes OPA Gatekeeper (K8sPSPPrivileged,
+# K8sPSPHostNamespace) : un seul moteur de politiques d'admission (Kyverno)
+# au lieu de deux qui appliquaient les mêmes règles.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privileged-and-host-namespaces
+  annotations:
+    policies.kyverno.io/title: Conteneurs privilégiés et espaces de noms de l'hôte interdits
+    policies.kyverno.io/category: Pod Security Standards (baseline)
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: disallow-privileged-containers
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+          - resources:
+              namespaces: [kube-system, kyverno]
+      validate:
+        message: "Les conteneurs privilégiés sont interdits (securityContext.privileged)."
+        pattern:
+          spec:
+            =(ephemeralContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            =(initContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+    - name: disallow-host-namespaces
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      exclude:
+        any:
+          - resources:
+              namespaces: [kube-system, kyverno]
+      validate:
+        message: "Le partage des espaces de noms de l'hôte (PID, IPC, réseau) est interdit."
+        pattern:
+          spec:
+            =(hostPID): "false"
+            =(hostIPC): "false"
+            =(hostNetwork): "false"

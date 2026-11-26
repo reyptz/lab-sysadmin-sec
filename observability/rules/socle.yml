@@ -1,0 +1,40 @@
+# Alertes sur le plan de contrôle lui-même et sur la conformité des
+# sauvegardes. Les alertes critiques remontent à socle (récepteur webhook
+# d'Alertmanager), qui ouvre et déduplique les incidents.
+groups:
+  - name: socle
+    rules:
+      - alert: SocleIndisponible
+        expr: up{job="socle"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: socle
+        annotations:
+          summary: "Plan de contrôle socle injoignable depuis 5 minutes"
+          description: "Déploiements, sauvegardes planifiées et exercices de restauration sont suspendus."
+
+      - alert: SauvegardeRpoDepasse
+        expr: socle_backup_rpo_compliant == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RPO dépassé pour la sauvegarde {{ $labels.policy }} ({{ $labels.environment }})"
+          description: "La dernière sauvegarde réussie est plus ancienne que l'objectif de perte de données."
+
+      - alert: ExerciceRestaurationHorsRto
+        expr: socle_backup_drill_within_rto == 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Le dernier exercice de restauration de {{ $labels.policy }} a dépassé le RTO"
+
+      - alert: OperationsBloqueesEnApprobation
+        expr: socle_operations{status="awaiting_approval"} > 0
+        for: 4h
+        labels:
+          severity: warning
+          service: socle
+        annotations:
+          summary: "{{ $value }} opération(s) en attente d'approbation depuis plus de 4 h"

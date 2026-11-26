@@ -1,0 +1,31 @@
+# Configuration Prometheus unique du dépôt (règles socle et SRE dans rules/).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: lab-local
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['prometheus:9090']
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+  - job_name: alertmanager
+    static_configs:
+      - targets: ['alertmanager:9093']
+  # Plan de contrôle socle (`make socle-serve` sur l'hôte) : opérations,
+  # incidents ouverts, conformité RPO/RTO des sauvegardes.
+  - job_name: socle
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:8080']

@@ -10,6 +10,23 @@ Ce projet est un laboratoire d'infrastructure **Cloud**, **DevOps** et **RHEL**,
 
 Il sert de démonstrateur technique pour des compétences avancées en administration système RHEL, ingénierie DevOps et architecture cloud AWS.
 
+### Pilotage : socle
+
+Tout le cycle de vie passe par **[socle](socle/README.md)**, le plan de contrôle du lab (Rust : CLI, API REST, console web) :
+déploiements Kubernetes (GitOps) et VMs RHEL (Ansible), promotion d'artefacts immuables, portes DevSecOps
+(tests, vulnérabilités, signature, SBOM), approbations à quatre yeux, retour arrière automatique,
+infrastructure multi-cloud (Terraform/OpenTofu, plan approuvé = plan appliqué), sauvegardes avec RPO/RTO
+et exercices de restauration, incidents, maintenance, journal d'audit infalsifiable et rapport de conformité
+ISO 27001 / SOC 2. Source de vérité : [`socle.yaml`](socle.yaml).
+
+```bash
+make socle-build && socle validate          # spécification complète et cohérente
+socle --local status                        # vue d'ensemble (ou SOCLE_URL + SOCLE_TOKEN vers le serveur)
+socle promote erp-app -e prod --ticket CHG-1234 --dry-run
+```
+
+Documentation : [architecture](docs/socle/architecture.md) · [exploitation](docs/socle/operations.md).
+
 ---
 
 ## Architecture Technique
@@ -22,9 +39,10 @@ Il sert de démonstrateur technique pour des compétences avancées en administr
 | **Bastion** | Accès SSH administratif restreint par CIDR |
 | **ALB** | Répartiteur de charge applicatif public |
 | **Serveurs applicatifs RHEL** | Instances EC2 privées avec hardening cloud-init |
-| **RDS PostgreSQL / Aurora** | Bases de données managées, chiffrées |
+| **EKS** | Cluster Kubernetes (déploiements GitOps Argo CD) |
+| **Aurora PostgreSQL** | Base managée chiffrée, PITR (RPO ≤ 5 min), AWS Backup quotidien |
 | **ElastiCache Redis** | Cache applicatif chiffré |
-| **S3 backups** | Stockage de sauvegardes avec versioning et chiffrement KMS |
+| **S3 backups** | Dépôts restic/Velero versionnés et chiffrés KMS (copies OVHcloud/Scaleway) |
 | **CloudWatch / SNS** | Observabilité et alertes |
 | **AWS Config / GuardDuty / Security Hub / WAF** | Conformité et sécurité (optionnels) |
 
@@ -69,10 +87,11 @@ Il sert de démonstrateur technique pour des compétences avancées en administr
 - **Moindre privilège** IAM et Security Groups.
 
 ### Automatisation
-- **Provisioning** des ressources AWS via Terraform.
-- **Configuration Management** RHEL avec Ansible.
-- **CI/CD** GitHub Actions pour Terraform et l'application ERP.
-- **GitOps** avec ArgoCD.
+- **Plan de contrôle socle** : un seul circuit (portes → approbations → exécution → vérification → retour arrière) pour tous les changements.
+- **Provisioning** des ressources AWS via Terraform (état distant S3 verrouillé, plan approuvé puis appliqué par socle).
+- **Configuration Management** RHEL avec Ansible (déploiement par lots, correctifs, sauvegardes restic/pgBackRest).
+- **CI/CD** GitHub Actions : tests, scan, signature cosign, SBOM, release enregistrée dans socle.
+- **GitOps** avec Argo CD (Argo Rollouts canary en production).
 
 ### Observabilité
 - Métriques CloudWatch et alertes SNS.
@@ -83,49 +102,27 @@ Il sert de démonstrateur technique pour des compétences avancées en administr
 
 ## Structure du Projet
 
-```bash
+```text
 lab-sysadmin-sec/
-├── .github/            # CI/CD GitHub Actions
-├── docs/               # Documentation et roadmap
-├── infrastructure/     # Infrastructure as Code (IaC)
-│   ├── aws/            # Module Terraform AWS
-│   └── onprem/
-│       └── ansible/    # Playbooks RHCSA et hardening
-│           ├── ansible.cfg      # Configuration Ansible
-│           ├── requirements.yml # Collections Ansible Galaxy
-│           ├── inventory/# Inventaire Ansible
-│           ├── playbooks/# Playbooks RHCSA et hardening
-│           └── site.yml  # Playbook principal
-├── platform/          # Services, conteneurs et observabilité
-│   ├── cloudnative/   # Application ERP et manifests Kubernetes
-│   │   ├── app/     # Application Node.js conteneurisée
-│   │   ├── helm/    # Chart Helm
-│   │   └── k8s/     # Manifests Kubernetes
-│   │       ├── app/      # Deployment et Service ERP
-│   │       ├── secrets/  # Gestion des secrets
-│   │       └── tenancy/  # Multi-tenancy, RBAC, NetworkPolicies
-│   ├── devsecops/     # Stack SRE et policies
-│   │   └── policies/   # Policies de sécurité
-│   │       ├── iac/      # Checkov
-│   │       ├── kubernetes/ # Kyverno, Gatekeeper
-│   │       └── scan/     # Trivy
-│   ├── gitops/        # ArgoCD
-│   ├── shinra/        # Défense active : agent eBPF, moteur, UI, playbooks
-│   ├── monitoring/    # Docker Compose Prometheus/Grafana
-│   └── sre/           # SLO/SLI, dashboards, runbooks
-│       ├── dashboards/ # Dashboards Grafana
-│       ├── rules/     # Règles Prometheus et SLO
-│       └── runbooks/  # Runbooks opérationnels
-├── security/          # Hardening RHEL
-│   └── ossec/         # HIDS configuration
-├── scripts/           # Scripts d'automatisation (Bash)
-├── Tests.md           # Procédures de validation
-├── Makefile           # Commandes de gestion du lab
-├── .gitignore
-└── README.md
+├── socle.yaml            # Spécification de la plateforme (source de vérité de socle)
+├── socle/                # Plan de contrôle (Rust) : CLI, API, console, moteur, déploiement HA
+├── apps/
+│   ├── erp/              # Application ERP (Node.js / Express, Dockerfile)
+│   └── shinra/           # Défense active : moteur FastAPI (image), agent eBPF, UI, contre-mesures
+├── gitops/
+│   ├── apps/erp/         # Kustomize : base + overlays dev / staging / prod / prod-canary
+│   ├── argocd/           # Applications et AppProject Argo CD
+│   └── cluster/          # Ressources transverses : secrets (ESO), tenancy (RBAC, NetworkPolicies), policies (Kyverno)
+├── infrastructure/
+│   ├── terraform/        # Zones d'accueil : aws, azure, gcp, ovh, scaleway (env/, backend/ par environnement)
+│   └── ansible/          # RHEL : RHCSA, durcissement/CIS, déploiement, correctifs, sauvegardes, scripts
+├── observability/        # Prometheus, Alertmanager (→ incidents socle), règles, dashboards, stack locale
+├── security/             # Vue d'ensemble DevSecOps, OSSEC/Wazuh, configuration Trivy
+├── docs/                 # socle (architecture, exploitation), SRE, AWS, roadmap, tests
+├── .github/              # CI/CD : application, socle, Terraform multi-cloud, Shinra
+└── Makefile              # Raccourcis (build, tests, validations, lab)
 ```
 
----
 
 ## Installation & Démarrage
 
@@ -138,21 +135,20 @@ lab-sysadmin-sec/
 ### Déploiement AWS
 
 ```bash
-cd infrastructure/aws
-cp terraform.tfvars.example terraform.tfvars  # ou exporter des TF_VAR_*
-terraform init
-terraform plan -var="allowed_ssh_cidr=<votre CIDR>"
-terraform apply
+export TF_VAR_allowed_ssh_cidr=<votre CIDR>     # variables sensibles : jamais versionnées
+socle infra plan aws-core -e dev                 # état distant backend/dev.hcl, variables env/dev.tfvars
+socle infra apply aws-core -e dev --plan-op <id-du-plan>
 ```
 
-Les variables sensibles (mot de passe DB, CIDR SSH) sont passées via variables Terraform ou `TF_VAR_*`. Aucun secret n'est versionné.
+Validation hors ligne : `make cloud-validate`. L'état Terraform est distant (S3 chiffré, verrouillé) ;
+voir l'amorçage dans [docs/socle/operations.md](docs/socle/operations.md).
 
 ### Démarrage Monitoring
 
 ```bash
 make monitoring-up
 # ou
-docker compose -f platform/monitoring/docker-compose.yml up -d
+docker compose -f observability/docker-compose.yml up -d
 ```
 
 > Note : `GF_ADMIN_PASSWORD` doit être définie avant de démarrer Grafana.
@@ -160,7 +156,7 @@ docker compose -f platform/monitoring/docker-compose.yml up -d
 ### Configuration RHEL
 
 ```bash
-cd infrastructure/onprem/ansible
+cd infrastructure/ansible
 ansible-galaxy collection install -r requirements.yml
 export RHEL_CONTROL_HOST=<ip> RHEL_MANAGED_HOST=<ip> RHEL_ADMIN_USER=<user> ANSIBLE_PRIVATE_KEY_FILE=<chemin de la clé>
 ansible-playbook -i inventory/inventory.yml site.yml
@@ -174,15 +170,15 @@ Les playbooks suivants couvrent les topics RHCSA pour l'infrastructure on-premis
 
 | Topic | Fichier / Commande |
 |:---|:---|
-| **SELinux enforcing + troubleshooting** | `infrastructure/onprem/ansible/playbooks/selinux.yml` |
-| **SSH hardening, fail2ban, firewalld** | `infrastructure/onprem/ansible/playbooks/hardening.yml` |
+| **SELinux enforcing + troubleshooting** | `infrastructure/ansible/playbooks/selinux.yml` |
+| **SSH hardening, fail2ban, firewalld** | `infrastructure/ansible/playbooks/hardening.yml` |
 | **Systemd services, dnf-automatic** | `playbooks/hardening.yml` |
-| **User/group creation script** | `scripts/create_users.sh` |
-| **LVM, partitioning, mount points, fstab** | `infrastructure/onprem/ansible/playbooks/lvm_storage.yml` |
-| **firewalld, nmcli networking** | `infrastructure/onprem/ansible/playbooks/firewalld_network.yml` |
-| **Podman rootless** | `infrastructure/onprem/ansible/playbooks/podman_containers.yml` |
-| **cron/at, file permissions, ACLs** | `infrastructure/onprem/ansible/playbooks/cron_acls.yml` |
-| **Boot targets, reset root password, journalctl** | `infrastructure/onprem/ansible/playbooks/boot_recovery.yml` |
+| **User/group creation script** | `infrastructure/ansible/scripts/create_users.sh` |
+| **LVM, partitioning, mount points, fstab** | `infrastructure/ansible/playbooks/lvm_storage.yml` |
+| **firewalld, nmcli networking** | `infrastructure/ansible/playbooks/firewalld_network.yml` |
+| **Podman rootless** | `infrastructure/ansible/playbooks/podman_containers.yml` |
+| **cron/at, file permissions, ACLs** | `infrastructure/ansible/playbooks/cron_acls.yml` |
+| **Boot targets, reset root password, journalctl** | `infrastructure/ansible/playbooks/boot_recovery.yml` |
 
 ---
 
@@ -190,13 +186,16 @@ Les playbooks suivants couvrent les topics RHCSA pour l'infrastructure on-premis
 
 | Capacité | Implémentation |
 |----------|----------------|
-| **CI/CD multi-stages** | `.github/workflows/cicd.yml` + `.gitlab-ci.yml` |
-| **GitOps** | `platform/gitops/argocd/` |
-| **Blue-Green / Canary** | `platform/gitops/argocd/apps/erp/overlays/prod-canary/` |
-| **Multi-tenant Kubernetes** | `platform/cloudnative/k8s/tenancy/` |
-| **Secrets management** | `platform/cloudnative/k8s/secrets/` (ESO / Vault) |
-| **SRE / SLI / SLO** | `platform/sre/` |
-| **Défense active / honeypots (eBPF)** | `platform/shinra/` |
+| **Plan de contrôle** | `socle/` + `socle.yaml` (CLI, API, console) |
+| **CI/CD multi-stages** | `.github/workflows/cicd.yml` (signature, SBOM, release socle), `socle.yml` |
+| **GitOps** | `gitops/` |
+| **Blue-Green / Canary** | `gitops/apps/erp/overlays/prod-canary/` (piloté par socle) |
+| **Sauvegardes RPO/RTO** | `socle.yaml` (backups) + `infrastructure/ansible/playbooks/backup_*.yml` |
+| **Incidents & conformité** | `socle incident …`, `socle compliance` (ISO 27001 / SOC 2) |
+| **Multi-tenant Kubernetes** | `gitops/cluster/tenancy/` |
+| **Secrets management** | `gitops/cluster/secrets/` (ESO / Vault) |
+| **SRE / SLI / SLO** | `docs/sre/` |
+| **Défense active / honeypots (eBPF)** | `apps/shinra/` |
 
 ---
 
@@ -205,4 +204,4 @@ Les playbooks suivants couvrent les topics RHCSA pour l'infrastructure on-premis
 Projet réalisé dans le cadre d'une montée en compétence **Cloud DevOps RHEL**.
 
 ---
-*Dernière mise à jour : Septembre 2026*
+*Dernière mise à jour : Novembre 2026*

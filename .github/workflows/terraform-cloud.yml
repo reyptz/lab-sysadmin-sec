@@ -1,16 +1,30 @@
-name: Terraform AWS CI/CD
+name: Terraform multi-cloud CI/CD
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: Environnement à planifier (état et variables dédiés)
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
   push:
     branches: [main, master]
     paths:
-      - 'infrastructure/aws/**'
+      - 'infrastructure/terraform/aws/**'
+      - 'infrastructure/terraform/azure/**'
+      - 'infrastructure/terraform/gcp/**'
+      - 'infrastructure/terraform/ovh/**'
+      - 'infrastructure/terraform/scaleway/**'
       - '.github/workflows/terraform-cloud.yml'
   pull_request:
     branches: [main, master]
     paths:
-      - 'infrastructure/aws/**'
+      - 'infrastructure/terraform/aws/**'
+      - 'infrastructure/terraform/azure/**'
+      - 'infrastructure/terraform/gcp/**'
+      - 'infrastructure/terraform/ovh/**'
+      - 'infrastructure/terraform/scaleway/**'
       - '.github/workflows/terraform-cloud.yml'
 
 # Moindre privilège : le token ne sert qu'à lire le code.
@@ -23,8 +37,15 @@ env:
 
 jobs:
   lint:
-    name: Terraform Format & Validate
+    name: Format & validate (${{ matrix.stack }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [aws, azure, gcp, ovh, scaleway]
+    defaults:
+      run:
+        working-directory: infrastructure/${{ matrix.stack }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,37 +53,51 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.0"
+          terraform_version: "1.10.5"
 
       - name: Terraform fmt
-        working-directory: infrastructure/aws
-        run: terraform fmt -check -diff
+        run: terraform fmt -check -diff -recursive
 
       - name: Terraform init
-        working-directory: infrastructure/aws
         run: terraform init -backend=false
 
       - name: Terraform validate
-        working-directory: infrastructure/aws
         run: terraform validate
 
   security:
-    name: Checkov Security Scan
+    name: Checkov (${{ matrix.stack }})
     runs-on: ubuntu-latest
     needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - stack: aws
+            soft_fail: false
+          # Nouvelles zones d'accueil : rapport non bloquant le temps de traiter
+          # (corriger ou justifier dans leur .checkov.yaml) les premiers écarts,
+          # puis passer soft_fail à false comme pour AWS.
+          - stack: azure
+            soft_fail: true
+          - stack: gcp
+            soft_fail: true
+          - stack: ovh
+            soft_fail: true
+          - stack: scaleway
+            soft_fail: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Run Checkov
-        # Version épinglée (jamais @master) + échec bloquant sur finding.
+        # Version épinglée (jamais @master) ; exceptions justifiées dans le
+        # .checkov.yaml de chaque stack.
         uses: bridgecrewio/checkov-action@v12.3126.0
         with:
-          directory: infrastructure/aws
-          # Exceptions justifiees : infrastructure/aws/.checkov.yaml
-          config_file: infrastructure/aws/.checkov.yaml
+          directory: infrastructure/${{ matrix.stack }}
+          config_file: infrastructure/${{ matrix.stack }}/.checkov.yaml
           framework: terraform
-          soft_fail: false
+          soft_fail: ${{ matrix.soft_fail }}
           output_format: cli
 
   plan:
@@ -83,7 +118,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.0"
+          terraform_version: "1.10.5"
 
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -91,10 +126,17 @@ jobs:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: eu-west-3
 
+      # Même commande que `socle infra plan aws-core -e <env>` : état distant
+      # verrouillé (backend/<env>.hcl) et variables versionnées (env/<env>.tfvars).
+      # L'application passe exclusivement par socle (plan approuvé, empreinte vérifiée).
       - name: Terraform init
-        working-directory: infrastructure/aws
-        run: terraform init
+        working-directory: infrastructure/terraform/aws
+        env:
+          TARGET_ENV: ${{ inputs.environment }}
+        run: terraform init -input=false -backend-config="backend/${TARGET_ENV}.hcl"
 
       - name: Terraform plan
-        working-directory: infrastructure/aws
-        run: terraform plan -var="environment=ci" -input=false
+        working-directory: infrastructure/terraform/aws
+        env:
+          TARGET_ENV: ${{ inputs.environment }}
+        run: terraform plan -input=false -lock-timeout=300s -var-file="env/${TARGET_ENV}.tfvars"

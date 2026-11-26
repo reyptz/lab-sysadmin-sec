@@ -1,0 +1,10 @@
+# Déploiement de socle lui-même : `kubectl apply -k socle/deploy/kubernetes`.
+# Secrets attendus dans le namespace (via External Secrets Operator de
+# préférence) : socle-database (clé url), socle-git (id_ed25519, known_hosts),
+# socle-notifications (optionnel).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: socle
+resources:
+  - deployment.yaml
+  - resources.yaml

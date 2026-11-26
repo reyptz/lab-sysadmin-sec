@@ -1,0 +1,94 @@
+---
+# CIS Linux niveau 1 — remédiation, et audit en mode contrôle :
+#   ansible-playbook --check --diff playbooks/cis_benchmark.yml playbooks/hardening.yml
+# (c'est ce que lance le runbook socle `audit-cis-rhel` ; toute tâche
+# « changed » en mode contrôle est un écart). Remplace scripts/cis_audit.sh,
+# dont tous les contrôles sont repris ici ou dans hardening.yml.
+- name: CIS Benchmark Linux (Level 1) - Audit & Remediate
+  hosts: rhel_servers
+  become: yes
+  tasks:
+    - name: CIS 1.1.1.1 Ensure mounting of cramfs is disabled
+      lineinfile:
+        path: /etc/modprobe.d/CIS.conf
+        regexp: '^install cramfs'
+        line: 'install cramfs /bin/true'
+        create: yes
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: CIS 1.4.1 Ensure filesystem permissions are governed by systemd tmpfiles
+      file:
+        path: /etc/tmpfiles.d
+        state: directory
+        mode: '0755'
+
+    - name: CIS 5.2.1 Ensure permissions on /etc/ssh/sshd_config are 600
+      file:
+        path: /etc/ssh/sshd_config
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: CIS 5.4.1 Ensure password creation requirements are configured
+      ansible.builtin.lineinfile:
+        path: /etc/security/pwquality.conf
+        regexp: '^\s*#?\s*{{ item.key }}\s*='
+        line: "{{ item.key }} = {{ item.value }}"
+        create: true
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - { key: minlen, value: 14 }
+        - { key: minclass, value: 4 }
+
+    - name: CIS 5.4.2 Lire le profil authselect courant
+      ansible.builtin.command:
+        argv: [authselect, current]
+      register: authselect_current
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: CIS 5.4.2 Ensure lockout for failed password attempts (pam_faillock)
+      ansible.builtin.command:
+        argv: [authselect, enable-feature, with-faillock]
+      when: authselect_current.rc == 0 and 'with-faillock' not in authselect_current.stdout
+
+    - name: CIS 5.4.2 Écart signalé en mode contrôle
+      ansible.builtin.debug:
+        msg: "pam_faillock inactif : corrigé à la prochaine exécution hors mode contrôle"
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - authselect_current.rc == 0 and 'with-faillock' not in authselect_current.stdout
+
+    - name: CIS 6.1.2 Ensure permissions on /etc/passwd are configured
+      ansible.builtin.file:
+        path: /etc/passwd
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: CIS 6.2.1 Ensure password fields are not empty
+      ansible.builtin.command:
+        argv: [awk, '-F:', '($2 == "") { print $1 }', /etc/shadow]
+      register: empty_passwords
+      changed_when: false
+      check_mode: false
+      failed_when: empty_passwords.stdout | length > 0
+
+    # Lynis est fourni par EPEL : le rapport n'est généré que s'il est installé.
+    - name: Vérifier la présence de Lynis
+      ansible.builtin.command: which lynis
+      register: lynis_bin
+      changed_when: false
+      failed_when: false
+
+    - name: Generate compliance report
+      ansible.builtin.shell: lynis audit system --quiet --no-colors > /var/log/cis-lynis-report.txt
+      args:
+        creates: /var/log/cis-lynis-report.txt
+      when: lynis_bin.rc == 0

@@ -22,6 +22,8 @@ Thumbs.db
 *.tfstate.backup
 *.tfvars
 *.tfvars.json
+# Variables NON sensibles par environnement : versionnées (secrets via TF_VAR_*/coffre).
+!infrastructure/*/env/*.tfvars
 .terraform/
 .terraform.lock.hcl
 terraform.tfplan
@@ -57,6 +59,8 @@ id_ed25519
 # ---------------------------------------------------------------
 node_modules/
 *.lock
+# Builds reproductibles de socle : le Cargo.lock d'une application se versionne.
+!socle/Cargo.lock
 *.log
 
 # ---------------------------------------------------------------
@@ -104,10 +108,19 @@ delete/
 
 
 # ---------------------------------------------------------------
-# Shinra Defense (platform/shinra)
+# Shinra Defense (apps/shinra)
 # ---------------------------------------------------------------
 target/
 chroma_db/
 *.db
 *.sqlite
 *.sqlite3
+
+# ---------------------------------------------------------------
+# socle (base locale du mode --local, plans Terraform temporaires)
+# ---------------------------------------------------------------
+.socle/
+.socle-*.tfplan
+
+# Jeton socle d'Alertmanager (stack de monitoring locale)
+observability/secrets/

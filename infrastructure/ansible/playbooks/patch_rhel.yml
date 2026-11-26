@@ -1,0 +1,65 @@
+---
+# Correctifs RHEL par lots (`socle patch <cible> -e <env>`). socle pose un
+# silence Alertmanager pendant l'intervention ; ce playbook applique les mises
+# à jour, redémarre si le noyau ou une bibliothèque critique l'exige, et
+# refuse de passer au lot suivant si un service systemd est tombé.
+- name: "Correctifs RHEL ({{ socle_environment | default('?') }})"
+  hosts: all
+  become: true
+  serial: "{{ socle_serial | default([1]) }}"
+  max_fail_percentage: 0
+  any_errors_fatal: true
+  vars:
+    socle_security_only: true
+    socle_reboot: true
+
+  pre_tasks:
+    - name: Refuser une exécution sans ciblage explicite (--limit)
+      ansible.builtin.assert:
+        that: ansible_limit is defined
+        fail_msg: "ce playbook doit être lancé par socle (ciblage --limit obligatoire)"
+
+    - name: Relever les unités en échec avant intervention
+      ansible.builtin.command: systemctl --failed --no-legend --plain
+      register: failed_before
+      changed_when: false
+
+  tasks:
+    - name: Appliquer les mises à jour
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        security: "{{ socle_security_only | bool }}"
+        update_only: true
+      register: updates
+
+    - name: Installer l'outil needs-restarting
+      ansible.builtin.dnf:
+        name: yum-utils
+        state: present
+
+    - name: Un redémarrage est-il nécessaire ?
+      ansible.builtin.command: needs-restarting -r
+      register: needs_restart
+      changed_when: false
+      failed_when: needs_restart.rc not in [0, 1]
+
+    - name: Redémarrer (lot courant uniquement)
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+        msg: "Redémarrage planifié par socle ({{ socle_operation | default('?') }})"
+      when: socle_reboot | bool and needs_restart.rc == 1
+
+    - name: Relever les unités en échec après intervention
+      ansible.builtin.command: systemctl --failed --no-legend --plain
+      register: failed_after
+      changed_when: false
+
+    - name: Aucune nouvelle unité en échec
+      ansible.builtin.assert:
+        that: new_failures | length == 0
+        fail_msg: "unités tombées après correctifs : {{ new_failures | join(', ') }}"
+      vars:
+        units_before: "{{ failed_before.stdout_lines | map('split') | map('first') | list }}"
+        units_after: "{{ failed_after.stdout_lines | map('split') | map('first') | list }}"
+        new_failures: "{{ units_after | difference(units_before) }}"
