@@ -25,7 +25,7 @@ services:
   # Transmet les alertes critiques à socle (incidents). Épingler le digest
   # comme pour les autres services (docker buildx imagetools inspect).
   alertmanager:
-    image: prom/alertmanager:v0.28.1
+    image: prom/alertmanager:v0.35.0
     container_name: alertmanager
     restart: unless-stopped
     volumes:
