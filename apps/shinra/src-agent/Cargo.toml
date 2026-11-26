@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-aya = { version = "0.12", features = ["async_tokio"] }
+aya = { version = "0.16", features = ["async_tokio"] }
 aya-log = "0.2"
 libc = "0.2"
 anyhow = "1.0"
